@@ -1,0 +1,71 @@
+# Dinámica de la pobreza en el Gran Buenos Aires: una comparación exploratoria antes y después de los shocks de 2009 y 2020
+
+Integrantes: Gutierrez Julian Juan Ignacio, Ripoll Mariano, Weinbaur Abril y Crivelli Santino
+
+## Resumen
+
+Este trabajo analiza la evolución de la pobreza por ingresos en hogares del Gran Buenos Aires en años seleccionados antes y después de dos crisis: el período asociado a 2009 y el período posterior al shock de 2020. El objetivo no es reproducir de manera oficial la medición publicada por INDEC, sino construir una base propia que permita explorar, hogar por hogar, si el ingreso total familiar alcanza para cubrir una línea de pobreza calculada a partir de la Canasta Básica Total y la composición del hogar.
+
+Para eso se combinaron microdatos de la Encuesta Permanente de Hogares, tanto de hogares como de individuos, con la serie de Canasta Básica Total de INDEC y una tabla de adulto equivalente. El procesamiento permitió construir una base final donde cada observación corresponde a un hogar del GBA, con información sobre ingresos, zona, composición equivalente, línea de pobreza, situación frente a esa línea y condición laboral del jefe de hogar. A partir de esa base se realizó un análisis exploratorio sobre la evolución de la pobreza, las diferencias entre CABA y Partidos del GBA, la comparación entre etapas de crisis y la presencia de hogares pobres aun cuando el jefe se encuentra ocupado.
+
+## Scripts
+
+El informe se apoya en cinco scripts que fueron ejecutados en orden. Cada uno cumple una función distinta dentro del proceso de trabajo: primero se limpian las bases de la EPH, después se calcula el adulto equivalente, luego se procesa la CBT, más adelante se clasifica la pobreza y finalmente se generan las tablas y gráficos usados en el análisis exploratorio.
+
+
+
+```{r}
+library(here)
+
+source(here("scripts", "01_limpieza_eph.R"))
+source(here("scripts", "02_adulto_equivalente.R"))
+source(here("scripts", "03_procesamiento_CBT.R"))
+source(here("scripts", "04_clasificacion_pobreza.R"))
+source(here("scripts", "05_tablas_y_graficos.R"))
+```
+
+
+
+## Datos
+
+El análisis se construyó a partir de tres tipos de fuentes. La primera fuente son los microdatos de hogares de la Encuesta Permanente de Hogares, de donde se obtuvo la información sobre ingreso total familiar, ponderadores, aglomerado, trimestre, año y características generales del hogar. La segunda fuente son los microdatos individuales de la misma encuesta, que permiten conocer la edad, sexo, relación con el jefe de hogar y condición laboral de cada integrante. La tercera fuente corresponde a información externa necesaria para construir la línea de pobreza: la Canasta Básica Total por adulto equivalente y los coeficientes de adulto equivalente según edad y sexo.
+
+El recorte territorial se concentró en el Gran Buenos Aires. Para eso se utilizaron los aglomerados 32 y 33 de la EPH, distinguiendo entre CABA y Partidos del GBA. El recorte temporal incluyó años seleccionados antes y después de los dos episodios que organizan el trabajo: 2007, 2008, 2010, 2011, 2018, 2019, 2021 y 2022. No se trabajó con una serie completa de todos los años entre 2007 y 2022, sino con períodos elegidos para comparar situaciones previas y posteriores a los shocks de 2009 y 2020.
+
+La base final no surge de un archivo ya armado, sino de un proceso de construcción propio. En primer lugar se leyeron y limpiaron las bases de hogares e individuos, se estandarizaron nombres de variables, se convirtieron variables críticas a formato numérico y se redujo la muestra a los hogares del GBA. Luego se calculó, para cada hogar, la suma de adultos equivalentes a partir de las características individuales de sus integrantes. En tercer lugar se procesó la serie de CBT, que originalmente se encontraba en valores mensuales, para construir un valor trimestral compatible con la estructura de la EPH. Finalmente se unieron las tres piezas: ingreso del hogar, composición equivalente y CBT correspondiente al período.
+
+La lógica de la clasificación fue la siguiente: para cada hogar se multiplicó la CBT por adulto equivalente por la cantidad de adultos equivalentes del hogar. Ese valor se tomó como línea de pobreza del hogar. Luego, si el ingreso total familiar era menor que esa línea, el hogar fue clasificado como pobre; si era igual o mayor, fue clasificado como no pobre. Además, se construyeron variables complementarias para identificar hogares cercanos a la línea de pobreza y hogares pobres con jefe ocupado.
+
+## Análisis exploratorio
+
+El primer resultado general muestra una diferencia marcada entre los dos bloques temporales del proyecto. En los años vinculados a la primera comparación, la tasa de pobreza ponderada cae de 14,5% en 2007 a 4,3% en 2011. En cambio, en el segundo bloque, la pobreza aparece en un nivel bastante más alto antes del shock de 2020 y llega a 28,6% en 2021 y 28,6% en 2022. Por lo tanto, la comparación inicial sugiere dos dinámicas distintas: una reducción posterior al primer episodio analizado y una persistencia elevada después del segundo.
+
+![Tasa de pobreza ponderada en hogares del GBA para los años seleccionados.](images/grafico_pobreza_anio.png){width="300"}
+
+La comparación territorial permite observar que el GBA no se comporta como un espacio homogéneo. En todos los años analizados, los Partidos del GBA muestran tasas superiores a CABA. La diferencia se vuelve especialmente amplia en los años recientes: en 2022, la tasa ponderada estimada es de 11,6% en CABA y de 33,9% en los Partidos del GBA. Esto indica que el deterioro observado en el total del GBA está fuertemente impulsado por el conurbano bonaerense, donde la proporción de hogares por debajo de la línea de pobreza es mucho mayor.
+
+![Tasa de pobreza ponderada por zona, separando CABA y Partidos del GBA.](output/figuras/grafico_pobreza_gba.png){width="85%"}
+
+La agrupación por etapas refuerza esta diferencia. Antes de la crisis de 2009, la tasa de pobreza ponderada era de 11,6%; después de esa crisis, en los años seleccionados, cae a 5,0%. En cambio, antes de la crisis de 2020 la tasa ya era de 22,5% y después aumenta a 28,6%. Aunque esta comparación no permite atribuir causalidad, sí deja planteada una diferencia sustantiva: el segundo episodio se asocia con un nivel de pobreza posterior mucho más alto y persistente que el observado en la comparación de 2009.
+
+![Tasa de pobreza ponderada antes y después de las crisis seleccionadas.](images/grafico_pobreza_etapa.png){width="300"}
+
+| Etapa                  | Hogares | Hogares pobres | Pobreza ponderada |
+|------------------------|--------:|---------------:|------------------:|
+| Antes de crisis 2009   |  18.510 |          2.018 |             11,6% |
+| Después de crisis 2009 |  20.309 |            930 |              5,0% |
+| Antes de crisis 2020   |  18.131 |          4.306 |             22,5% |
+| Después de crisis 2020 |  10.803 |          2.675 |             28,6% |
+
+Además de la pobreza estricta, la base permite observar hogares vulnerables que no son clasificados como pobres, pero se encuentran cerca de la línea. En 2018 y 2019, estos hogares representaban alrededor de 7,9% y 8,1% del total de hogares medidos. En 2022, la proporción llega a 8,3%. Este dato importa porque muestra que el análisis no se limita a la frontera pobre no pobre: también permite captar hogares que, aun ubicados por encima de la línea, se encuentran en una posición frágil.
+
+La condición laboral del jefe de hogar aporta otro indicio relevante. En 2022, la pobreza no ponderada entre hogares con jefe ocupado alcanza 25,0%, casi al mismo nivel que en hogares con jefe no ocupado, donde se ubica en 25,4%. Esto no alcanza para afirmar por sí solo una explicación laboral completa, pero sí respalda la idea de que el problema reciente no puede leerse únicamente como ausencia de empleo. En una parte importante de los hogares, la ocupación del jefe no parece garantizar que el ingreso familiar total supere la línea de pobreza.
+
+## Propuesta de análisis
+
+A partir de la base construida y de esta primera exploración, el proyecto continuará con una comparación más precisa entre los períodos seleccionados alrededor de las crisis de 2009 y 2020. La pregunta principal será si el deterioro observado después de 2020 muestra una persistencia mayor que el registrado después de 2009 en los hogares del Gran Buenos Aires. En este sentido, el análisis no buscará afirmar que cada crisis explica por sí sola todos los cambios observados, sino utilizar esos momentos como puntos de comparación para ordenar la evolución de la pobreza en los años seleccionados.
+
+Para avanzar sobre esa pregunta, se trabajará con tres dimensiones de una misma propuesta. En primer lugar, se comparará la tasa de pobreza ponderada antes y después de cada crisis, observando si los niveles posteriores vuelven a valores similares a los previos o si se mantienen elevados. En segundo lugar, se analizará la proporción de hogares no pobres que quedan cerca de la línea de pobreza, ya que este grupo permite observar situaciones de vulnerabilidad que no aparecen si solo se distingue entre hogares pobres y no pobres. En tercer lugar, se profundizará el análisis de los hogares pobres con jefe ocupado, porque esa situación permite aproximarse al problema de hogares que, aun teniendo inserción laboral, no alcanzan ingresos suficientes para cubrir la Canasta Básica Total correspondiente a su composición familiar.
+
+Esta propuesta mantiene un carácter exploratorio. La base no reconstruye una serie continua de todos los años entre 2007 y 2022, sino que selecciona años previos y posteriores a dos shocks relevantes para comparar patrones. Además, la clasificación de pobreza elaborada en este trabajo no pretende reproducir de manera exacta la metodología oficial completa de INDEC, sino construir una medición propia a partir de microdatos de la EPH, coeficientes de adulto equivalente y valores de CBT. Por lo tanto, los resultados permiten identificar tendencias y formular hipótesis plausibles, pero no establecer relaciones causales definitivas. El aporte principal de esta primera entrega es dejar construida una base consistente y reutilizable para profundizar la comparación en la siguiente etapa del proyecto.
+
