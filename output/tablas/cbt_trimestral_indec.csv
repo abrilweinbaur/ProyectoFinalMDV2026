@@ -1,4 +1,4 @@
-anio,trimestre,meses_disponibles,cba_adulto_equiv,cbt_adulto_equiv,fuente
+anio,trimestre,meses_indec,cba_indec_adulto_equiv,cbt_indec_adulto_equiv,fuente_indec
 2000,3,1,62.440000000000005,151.1,INDEC historica
 2000,4,3,63.510000000000005,154.31,INDEC historica
 2001,1,3,62.793333333333344,153.63333333333333,INDEC historica

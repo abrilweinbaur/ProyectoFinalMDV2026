@@ -1,2 +1,2 @@
-periodos_esperados,periodos_con_cbt,periodos_sin_cbt,periodos_incompletos,fecha_minima,fecha_maxima,meses_totales
-31,31,0,0,2000-09-20,2026-03-01,280
+periodos_esperados,periodos_con_cbt_final,periodos_sin_cbt_final,periodos_con_fuente_incompleta,cbt_base_2007_t1,ipc_base_2007_t1,meses_indec_totales,meses_cifra_totales,fecha_minima_indec,fecha_maxima_indec,fecha_minima_cifra,fecha_maxima_cifra
+31,31,0,0,296.8133333333333,22.28563736167482,280,144,2000-09-20,2026-03-01,2007-01-01,2018-12-01

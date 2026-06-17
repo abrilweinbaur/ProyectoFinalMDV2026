@@ -16,6 +16,13 @@ library(here)
 message("Iniciando busqueda y limpieza de bases EPH...")
 
 # ============================================================
+# 0. Carpetas de salida
+# ============================================================
+
+dir.create(here("data_processed"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("output", "tablas"), recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================
 # 1. Periodos del proyecto
 # ============================================================
 
@@ -34,7 +41,56 @@ carpeta_hogar <- here("data_raw", "eph", "hogar")
 carpeta_individual <- here("data_raw", "eph", "individual")
 
 # ============================================================
-# 3. Funciones
+# 3. Variables esperadas
+# ============================================================
+
+variables_hogar_obligatorias <- c(
+  "codusu",
+  "nro_hogar",
+  "aglomerado",
+  "pondera",
+  "itf",
+  "ix_tot",
+  "decifr",
+  "deccfr"
+)
+
+variables_hogar_deseables <- c(
+  "ano4",
+  "trimestre",
+  "region",
+  "realizada",
+  "pondih",
+  "ipcf",
+  "ix_men10",
+  "ix_mayeq10"
+)
+
+variables_individual_obligatorias <- c(
+  "codusu",
+  "nro_hogar",
+  "componente",
+  "aglomerado",
+  "pondera",
+  "ch03",
+  "ch04",
+  "ch06",
+  "estado"
+)
+
+variables_individual_deseables <- c(
+  "ano4",
+  "trimestre",
+  "region",
+  "cat_ocup",
+  "itf",
+  "ipcf",
+  "decifr",
+  "deccfr"
+)
+
+# ============================================================
+# 4. Funciones
 # ============================================================
 
 buscar_archivo_eph <- function(carpeta, anio, trimestre) {
@@ -149,6 +205,58 @@ leer_base_eph <- function(path) {
   base
 }
 
+chequear_variables_base <- function(base, variables_obligatorias, variables_deseables,
+                                    tipo_base, anio_base, trimestre_base) {
+  
+  variables_chequeo <- tibble(
+    variable = c(variables_obligatorias, variables_deseables),
+    tipo_variable = c(
+      rep("obligatoria", length(variables_obligatorias)),
+      rep("deseable", length(variables_deseables))
+    )
+  ) |>
+    distinct(variable, .keep_all = TRUE) |>
+    mutate(
+      tipo_base = tipo_base,
+      anio = anio_base,
+      trimestre = trimestre_base,
+      periodo = paste0(anio_base, "_t", trimestre_base),
+      presente = variable %in% names(base)
+    ) |>
+    select(tipo_base, anio, trimestre, periodo, variable, tipo_variable, presente)
+  
+  faltan_obligatorias <- variables_chequeo |>
+    filter(tipo_variable == "obligatoria", presente == FALSE) |>
+    pull(variable)
+  
+  if (length(faltan_obligatorias) > 0) {
+    stop(
+      paste0(
+        "Faltan variables obligatorias en la base ",
+        tipo_base, " ",
+        anio_base, "T", trimestre_base,
+        ": ",
+        paste(faltan_obligatorias, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  
+  variables_chequeo
+}
+
+agregar_columnas_si_faltan <- function(base, variables) {
+  
+  for (variable_i in variables) {
+    
+    if (!variable_i %in% names(base)) {
+      base[[variable_i]] <- NA
+    }
+  }
+  
+  base
+}
+
 convertir_variables_numericas <- function(base) {
   
   variables_numericas <- c(
@@ -182,6 +290,28 @@ convertir_variables_numericas <- function(base) {
     )
 }
 
+crear_variables_tiempo <- function(base, anio_base, trimestre_base) {
+  
+  base |>
+    mutate(
+      anio = anio_base,
+      trimestre = trimestre_base,
+      periodo = paste0(anio, "_t", trimestre),
+      periodo_orden = anio * 10 + trimestre,
+      anio_trimestre = paste0(anio, " T", trimestre),
+      mes_inicio_trimestre = case_when(
+        trimestre == 1 ~ 1,
+        trimestre == 2 ~ 4,
+        trimestre == 3 ~ 7,
+        trimestre == 4 ~ 10,
+        TRUE ~ NA_real_
+      ),
+      fecha_trimestre = as.Date(
+        paste0(anio, "-", str_pad(mes_inicio_trimestre, 2, pad = "0"), "-01")
+      )
+    )
+}
+
 limpiar_hogar <- function(base, anio_base, trimestre_base) {
   
   if (!"ano4" %in% names(base)) {
@@ -192,17 +322,16 @@ limpiar_hogar <- function(base, anio_base, trimestre_base) {
     base$trimestre <- trimestre_base
   }
   
-  if (!"pondih" %in% names(base)) {
-    base$pondih <- NA
-  }
+  base <- base |>
+    agregar_columnas_si_faltan(c(variables_hogar_obligatorias, variables_hogar_deseables))
   
-  base |>
+  base_limpia <- base |>
     convertir_variables_numericas() |>
     filter(aglomerado %in% c(32, 33)) |>
+    crear_variables_tiempo(anio_base, trimestre_base) |>
     mutate(
-      anio = anio_base,
-      trimestre = trimestre_base,
-      periodo = paste0(anio, "_t", trimestre),
+      codusu = str_trim(as.character(codusu)),
+      id_hogar = paste(periodo, codusu, nro_hogar, sep = "_"),
       gba = case_when(
         aglomerado == 32 ~ "CABA",
         aglomerado == 33 ~ "Partidos del GBA",
@@ -224,14 +353,24 @@ limpiar_hogar <- function(base, anio_base, trimestre_base) {
         itf == 0 & no_respuesta_ingresos == 0 ~ 1,
         TRUE ~ 0
       )
-    ) |>
+    )
+  
+  if (nrow(base_limpia) == 0) {
+    warning("No quedaron hogares de CABA o Partidos del GBA en ", anio_base, "T", trimestre_base)
+  }
+  
+  base_limpia |>
     select(
+      id_hogar,
       codusu,
       nro_hogar,
       anio,
       ano4,
       trimestre,
       periodo,
+      periodo_orden,
+      anio_trimestre,
+      fecha_trimestre,
       region,
       aglomerado,
       gba,
@@ -243,6 +382,8 @@ limpiar_hogar <- function(base, anio_base, trimestre_base) {
       ipcf,
       decifr,
       deccfr,
+      decifr_codigo,
+      deccfr_codigo,
       no_respuesta_ingresos,
       ingreso_cero,
       ix_tot,
@@ -262,13 +403,16 @@ limpiar_individual <- function(base, anio_base, trimestre_base) {
     base$trimestre <- trimestre_base
   }
   
-  base |>
+  base <- base |>
+    agregar_columnas_si_faltan(c(variables_individual_obligatorias, variables_individual_deseables))
+  
+  base_limpia <- base |>
     convertir_variables_numericas() |>
     filter(aglomerado %in% c(32, 33)) |>
+    crear_variables_tiempo(anio_base, trimestre_base) |>
     mutate(
-      anio = anio_base,
-      trimestre = trimestre_base,
-      periodo = paste0(anio, "_t", trimestre),
+      codusu = str_trim(as.character(codusu)),
+      id_hogar = paste(periodo, codusu, nro_hogar, sep = "_"),
       gba = case_when(
         aglomerado == 32 ~ "CABA",
         aglomerado == 33 ~ "Partidos del GBA",
@@ -290,9 +434,18 @@ limpiar_individual <- function(base, anio_base, trimestre_base) {
         estado == 4 ~ "Menor de 10",
         estado == 0 ~ "Entrevista no realizada",
         TRUE ~ NA_character_
-      )
-    ) |>
+      ),
+      decifr = str_trim(as.character(decifr)),
+      deccfr = str_trim(as.character(deccfr))
+    )
+  
+  if (nrow(base_limpia) == 0) {
+    warning("No quedaron individuos de CABA o Partidos del GBA en ", anio_base, "T", trimestre_base)
+  }
+  
+  base_limpia |>
     select(
+      id_hogar,
       codusu,
       nro_hogar,
       componente,
@@ -300,6 +453,9 @@ limpiar_individual <- function(base, anio_base, trimestre_base) {
       ano4,
       trimestre,
       periodo,
+      periodo_orden,
+      anio_trimestre,
+      fecha_trimestre,
       region,
       aglomerado,
       gba,
@@ -321,7 +477,7 @@ limpiar_individual <- function(base, anio_base, trimestre_base) {
 }
 
 # ============================================================
-# 4. Inventario de archivos
+# 5. Inventario de archivos
 # ============================================================
 
 inventario_bases_eph <- periodos_proyecto |>
@@ -348,11 +504,12 @@ if (nrow(faltantes) > 0) {
 }
 
 # ============================================================
-# 5. Lectura y limpieza de todos los periodos
+# 6. Lectura y limpieza de todos los periodos
 # ============================================================
 
 lista_hogares <- list()
 lista_individuos <- list()
+lista_chequeo_variables <- list()
 
 for (i in seq_len(nrow(inventario_bases_eph))) {
   
@@ -361,12 +518,34 @@ for (i in seq_len(nrow(inventario_bases_eph))) {
   
   message("Procesando hogar ", anio_i, " trimestre ", trimestre_i)
   
-  lista_hogares[[i]] <- leer_base_eph(inventario_bases_eph$path_hogar[i]) |>
+  base_hogar_i <- leer_base_eph(inventario_bases_eph$path_hogar[i])
+  
+  lista_chequeo_variables[[length(lista_chequeo_variables) + 1]] <- chequear_variables_base(
+    base = base_hogar_i,
+    variables_obligatorias = variables_hogar_obligatorias,
+    variables_deseables = variables_hogar_deseables,
+    tipo_base = "hogar",
+    anio_base = anio_i,
+    trimestre_base = trimestre_i
+  )
+  
+  lista_hogares[[i]] <- base_hogar_i |>
     limpiar_hogar(anio_i, trimestre_i)
   
   message("Procesando individual ", anio_i, " trimestre ", trimestre_i)
   
-  lista_individuos[[i]] <- leer_base_eph(inventario_bases_eph$path_individual[i]) |>
+  base_individual_i <- leer_base_eph(inventario_bases_eph$path_individual[i])
+  
+  lista_chequeo_variables[[length(lista_chequeo_variables) + 1]] <- chequear_variables_base(
+    base = base_individual_i,
+    variables_obligatorias = variables_individual_obligatorias,
+    variables_deseables = variables_individual_deseables,
+    tipo_base = "individual",
+    anio_base = anio_i,
+    trimestre_base = trimestre_i
+  )
+  
+  lista_individuos[[i]] <- base_individual_i |>
     limpiar_individual(anio_i, trimestre_i)
 }
 
@@ -374,15 +553,22 @@ hogares_eph_gba <- bind_rows(lista_hogares)
 
 individuos_eph_gba <- bind_rows(lista_individuos)
 
+chequeo_variables_eph <- bind_rows(lista_chequeo_variables) |>
+  arrange(anio, trimestre, tipo_base, desc(tipo_variable), variable)
+
 # ============================================================
-# 6. Chqueos de limpieza
+# 7. Chequeos de limpieza
 # ============================================================
 
 chequeo_hogares_eph <- hogares_eph_gba |>
-  group_by(anio, trimestre, periodo) |>
+  group_by(anio, trimestre, periodo, fecha_trimestre) |>
   summarise(
     hogares = n(),
-    hogares_unicos = n_distinct(paste(codusu, nro_hogar)),
+    hogares_unicos = n_distinct(id_hogar),
+    hogares_ponderados_ingreso = sum(ponderador_ingreso, na.rm = TRUE),
+    hogares_ponderados_original = sum(pondera, na.rm = TRUE),
+    hogares_sin_ponderador_ingreso = sum(is.na(ponderador_ingreso)),
+    hogares_sin_itf = sum(is.na(itf)),
     hogares_sin_respuesta_ingresos = sum(no_respuesta_ingresos == 1, na.rm = TRUE),
     hogares_ingreso_cero = sum(ingreso_cero == 1, na.rm = TRUE),
     itf_mediana = median(itf, na.rm = TRUE),
@@ -391,32 +577,72 @@ chequeo_hogares_eph <- hogares_eph_gba |>
   arrange(anio, trimestre)
 
 chequeo_individuos_eph <- individuos_eph_gba |>
-  group_by(anio, trimestre, periodo) |>
+  group_by(anio, trimestre, periodo, fecha_trimestre) |>
   summarise(
     personas = n(),
-    hogares_unicos = n_distinct(paste(codusu, nro_hogar)),
+    personas_ponderadas = sum(pondera, na.rm = TRUE),
+    hogares_unicos = n_distinct(id_hogar),
     jefes_hogar = sum(jefe_hogar == 1, na.rm = TRUE),
     ocupados = sum(estado == 1, na.rm = TRUE),
     desocupados = sum(estado == 2, na.rm = TRUE),
     inactivos = sum(estado == 3, na.rm = TRUE),
+    menores_10 = sum(estado == 4, na.rm = TRUE),
+    edad_minima = min(ch06, na.rm = TRUE),
+    edad_maxima = max(ch06, na.rm = TRUE),
     .groups = "drop"
   ) |>
   arrange(anio, trimestre)
 
 chequeo_union_hogar_individual <- chequeo_hogares_eph |>
-  select(anio, trimestre, periodo, hogares_hogar = hogares_unicos) |>
+  select(anio, trimestre, periodo, fecha_trimestre, hogares_hogar = hogares_unicos) |>
   left_join(
     chequeo_individuos_eph |>
-      select(anio, trimestre, periodo, hogares_individual = hogares_unicos, personas, jefes_hogar),
+      select(
+        anio,
+        trimestre,
+        periodo,
+        hogares_individual = hogares_unicos,
+        personas,
+        jefes_hogar
+      ),
     by = c("anio", "trimestre", "periodo")
   ) |>
   mutate(
     diferencia_hogares = hogares_hogar - hogares_individual,
-    diferencia_jefes = hogares_hogar - jefes_hogar
-  )
+    diferencia_jefes = hogares_hogar - jefes_hogar,
+    problema_union = case_when(
+      diferencia_hogares != 0 | diferencia_jefes != 0 ~ 1,
+      TRUE ~ 0
+    )
+  ) |>
+  arrange(anio, trimestre)
+
+chequeo_muestra_zona_eph <- hogares_eph_gba |>
+  group_by(anio, trimestre, periodo, fecha_trimestre, gba) |>
+  summarise(
+    hogares = n(),
+    hogares_ponderados_ingreso = sum(ponderador_ingreso, na.rm = TRUE),
+    hogares_sin_respuesta_ingresos = sum(no_respuesta_ingresos == 1, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  left_join(
+    individuos_eph_gba |>
+      group_by(anio, trimestre, periodo, gba) |>
+      summarise(
+        personas = n(),
+        personas_ponderadas = sum(pondera, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = c("anio", "trimestre", "periodo", "gba")
+  ) |>
+  arrange(anio, trimestre, gba)
+
+if (any(chequeo_union_hogar_individual$problema_union == 1, na.rm = TRUE)) {
+  warning("Hay diferencias entre hogares y bases individuales. Revisar chequeo_union_hogar_individual.csv")
+}
 
 # ============================================================
-# 7. Guardado de resultados
+# 8. Guardado de resultados
 # ============================================================
 
 write_rds(
@@ -427,6 +653,11 @@ write_rds(
 write_rds(
   individuos_eph_gba,
   here("data_processed", "individuos_eph_gba.rds")
+)
+
+write_csv(
+  chequeo_variables_eph,
+  here("output", "tablas", "chequeo_variables_eph.csv")
 )
 
 write_csv(
@@ -442,6 +673,11 @@ write_csv(
 write_csv(
   chequeo_union_hogar_individual,
   here("output", "tablas", "chequeo_union_hogar_individual.csv")
+)
+
+write_csv(
+  chequeo_muestra_zona_eph,
+  here("output", "tablas", "chequeo_muestra_zona_eph.csv")
 )
 
 message("Busqueda y limpieza de bases EPH finalizados.")
