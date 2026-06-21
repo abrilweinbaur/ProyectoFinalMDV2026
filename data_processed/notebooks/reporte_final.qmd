@@ -1,0 +1,649 @@
+---
+title: "Pobreza y vulnerabilidad de los hogares en CABA y Partidos del GBA"
+subtitle: "Una comparación exploratoria de la estructura del hogar alrededor de las crisis de 2009 y 2020"
+author:
+  - "Gutiérrez Julián, Juan Ignacio"
+  - "Ripoll, Mariano"
+  - "Weinbaur, Abril"
+  - "Crivelli, Santino"
+date: last-modified
+date-format: "D [de] MMMM [de] YYYY"
+lang: es
+abstract: |
+  Este trabajo analiza por qué los hogares de los Partidos del Gran Buenos Aires (GBA)
+  resultan más vulnerables a la pobreza por ingresos que los de la Ciudad Autónoma de
+  Buenos Aires (CABA), comparando trimestres anteriores y posteriores a las crisis de
+  2009 y 2020. Más allá de cuánta pobreza hay, el estudio distingue dos dimensiones
+  —la incidencia (qué proporción de hogares cae bajo la línea) y la intensidad (cuán
+  lejos de la línea quedan los hogares pobres)— y examina en qué medida la composición
+  demográfica y económica del hogar ayuda a comprender la brecha territorial. La pobreza
+  se mide, hogar por hogar, enfrentando el ingreso total familiar con una línea derivada
+  de la Canasta Básica Total por adulto equivalente, sobre una base propia construida con
+  microdatos de la Encuesta Permanente de Hogares y series de canasta e índices de precios.
+  El análisis es descriptivo: identifica asociaciones, no relaciones causales.
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Mostrar / ocultar código"
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: top
+    smooth-scroll: true
+    embed-resources: true
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  fig-width: 9
+  fig-height: 5.5
+knitr:
+  opts_chunk:
+    comment: "#>"
+    collapse: true
+    dev: "png"
+    dpi: 150
+editor: source
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+
+options(OutDec = ",")
+
+library(tidyverse)   # manipulación de datos y gráficos (dplyr, ggplot2, etc.)
+library(here)        # rutas relativas robustas ancladas en la raíz del proyecto
+library(scales)      # formateo de ejes y etiquetas (porcentajes, separadores)
+library(knitr)       # include_graphics() y kable()
+library(kableExtra)  # estilizado de tablas en HTML
+
+```
+
+```{r}
+#| label: verificacion-rutas
+#| code-summary: "Verificación de archivos requeridos"
+
+# ------------------------------------------------------------------
+
+archivos_requeridos <- c(
+  base_pobreza      = here("data_processed", "hogares_pobreza.rds"),
+  base_cbt          = here("data_processed", "cbt_trimestral_proyecto.rds"),
+  tabla_adulto_eq   = here("output", "tablas", "tabla_adulto_equivalente.csv"),
+  resumen_crisis    = here("output", "tablas", "resumen_pobreza_crisis_gba.csv"),
+  resumen_comp      = here("output", "tablas", "resumen_composicion_pobreza_gba.csv")
+)
+
+graficos_requeridos <- here(
+  "output", "graficos",
+  c(
+    "01_serie_pobreza_zona.png",
+    "02_cambio_antes_despues.png",
+    "03_brecha_territorial.png",
+    "04_distribucion_ratio_ingreso.png",
+    "05_adultos_equivalentes.png",
+    "06_menores_y_pobreza.png",
+    "07_carga_por_perceptor.png",
+    "08_pobreza_jefe_ocupado.png",
+    "09_heatmap_mecanismos.png"
+  )
+)
+
+faltantes <- c(
+  archivos_requeridos[!file.exists(archivos_requeridos)],
+  graficos_requeridos[!file.exists(graficos_requeridos)]
+)
+
+if (length(faltantes) > 0) {
+  stop(
+    "Faltan salidas del pipeline. Ejecutar en orden scripts/01 a 05 desde la raíz ",
+    "del proyecto antes de renderizar.\nNo se encontraron:\n - ",
+    paste(faltantes, collapse = "\n - "),
+    call. = FALSE
+  )
+}
+
+message("Todos los archivos requeridos están disponibles.")
+```
+
+```{r}
+#| label: funciones-y-lectura
+#| code-summary: "Funciones auxiliares y lectura de las bases procesadas"
+
+# ------------------------------------------------------------------
+# Funciones auxiliares.
+# Replican la lógica de ponderación usada en los scripts 04 y 05, para
+# que las tablas y los números del texto se calculen igual que en el
+# pipeline (incidencia ponderada por el ponderador de ingresos).
+# ------------------------------------------------------------------
+
+# Media ponderada robusta: ignora NA/Inf y ponderadores no positivos.
+media_ponderada <- function(x, w) {
+  ok <- is.finite(x) & is.finite(w) & w > 0
+  if (!any(ok)) return(NA_real_)
+  weighted.mean(x[ok], w[ok])
+}
+
+# Formato de enteros con punto como separador de miles (estilo español).
+# Fijamos decimal.mark = "," para evitar la colisión con big.mark = ".".
+fmt_mil <- function(x) formatC(x, format = "d", big.mark = ".", decimal.mark = ",")
+
+# Lectura de la base analítica principal (un hogar por fila, ya clasificado).
+# Refiere a  la salida del script 04 y concentra ingreso, composición, CBT , línea de
+# pobreza y la condición de pobre/no pobre de cada hogar.
+hogares_pobreza <- read_rds(here("data_processed", "hogares_pobreza.rds"))
+
+# Serie de Canasta Básica Total (CBT) final por adulto equivalente y trimestre,
+#con la fuente que corresponde a cada bloque (salida del script 03).
+cbt_proyecto <- read_rds(here("data_processed", "cbt_trimestral_proyecto.rds"))
+
+# Tabla de coeficientes de adulto equivalente por sexo y edad (salida del script 02).
+tabla_adulto_eq <- read_csv(
+  here("output", "tablas", "tabla_adulto_equivalente.csv"),
+  show_col_types = FALSE
+)
+```
+
+```{r}
+#| label: base-medicion
+#| code-summary: "Construcción de la base de hogares medibles"
+
+# ------------------------------------------------------------------
+# Base de trabajo para todo el análisis de resultados.
+
+#Se queda solo con los hogares que ENTRAN a la medición de pobreza
+# (con ingreso válido, adulto equivalente válido y CBT disponible) y que
+# pertenecen a las dos zonas y a los dos bloques de crisis estudiados.
+# Es la población sobre la que se calculan las tasas.
+# ------------------------------------------------------------------
+
+base_med <- hogares_pobreza |>
+  filter(
+    entra_medicion_pobreza == 1,
+    gba %in% c("CABA", "Partidos del GBA"),
+    crisis %in% c("Crisis 2009", "Crisis 2020"),
+    momento %in% c("Antes", "Despues"),
+    is.finite(ponderador_ingreso),
+    ponderador_ingreso > 0
+  ) |>
+  mutate(
+    gba = factor(gba, levels = c("CABA", "Partidos del GBA")),
+    crisis = factor(crisis, levels = c("Crisis 2009", "Crisis 2020")),
+    # Etiqueta legible del momento (los datos guardan "Despues" sin tilde).
+    momento_lab = factor(
+      momento,
+      levels = c("Antes", "Despues"),
+      labels = c("Antes", "Después")
+    ),
+    presencia_menores = if_else(n_menores_18 > 0, "Con menores", "Sin menores")
+  )
+
+# Tasa de pobreza ponderada por crisis, momento y zona.
+# Es el insumo central de las tablas y de varios números del texto.
+pobreza_zona <- base_med |>
+  group_by(crisis, momento, gba) |>
+  summarise(
+    tasa = media_ponderada(pobre, ponderador_ingreso),
+    hogares = n(),
+    .groups = "drop"
+  )
+
+# Formateadores: =
+fmt_pct1 <- function(x) formatC(x, format = "f", digits = 1, decimal.mark = ",")
+fmt_num2 <- function(x) formatC(x, format = "f", digits = 2, decimal.mark = ",")
+
+# Tasa puntual NUMÉRICA (en %), redondada a un decimal. 
+pz_num <- function(crisis_i, momento_i, gba_i) {
+  valor <- pobreza_zona |>
+    filter(crisis == crisis_i, momento == momento_i, gba == gba_i) |>
+    pull(tasa)
+  round(100 * valor, 1)
+}
+
+# Versión de texto (con un decimal y coma) para citar en el cuerpo del reportte.
+pz <- function(crisis_i, momento_i, gba_i) fmt_pct1(pz_num(crisis_i, momento_i, gba_i))
+
+# Brecha territorial (Partidos del GBA - CABA), en puntos porcentuales, formateada.
+brecha_pp <- function(crisis_i, momento_i) {
+  fmt_pct1(pz_num(crisis_i, momento_i, "Partidos del GBA") - pz_num(crisis_i, momento_i, "CABA"))
+}
+
+# Algunos descriptores generales de la muestra para el texto.
+n_total      <- nrow(hogares_pobreza)
+n_periodos   <- n_distinct(hogares_pobreza$periodo)
+n_fuera      <- sum(hogares_pobreza$entra_medicion_pobreza == 0)
+pct_fuera    <- round(100 * mean(hogares_pobreza$entra_medicion_pobreza == 0), 1)
+n_medibles   <- nrow(base_med)
+
+# Tasas puntuales que se citan en el texto de Resultados, precalculadas como
+# escalares para mantener el código inline simple y reproducible.
+pob_menores_gba_2020 <- base_med |>
+  filter(crisis == "Crisis 2020", momento == "Despues",
+         gba == "Partidos del GBA", presencia_menores == "Con menores") |>
+  summarise(t = media_ponderada(pobre, ponderador_ingreso)) |>
+  pull(t) |>
+  (\(x) fmt_pct1(round(100 * x, 1)))()
+
+pob_jefeocup_gba_2020 <- base_med |>
+  filter(crisis == "Crisis 2020", momento == "Despues",
+         gba == "Partidos del GBA", jefe_ocupado == 1) |>
+  summarise(t = media_ponderada(pobre, ponderador_ingreso)) |>
+  pull(t) |>
+  (\(x) fmt_pct1(round(100 * x, 1)))()
+```
+
+```{r}
+#| label: metricas-texto
+#| code-summary: "Métricas adicionales citadas en el texto"
+
+# ------------------------------------------------------------------
+# Métricas que se citan inline en el cuerpo. 
+# ------------------------------------------------------------------
+
+# (a) Rango trimestral (mínimo–máximo) de la tasa de pobreza por zona y crisis.
+# Sirve para describir el gráfico de serie temporal con cifras precisas.
+rango_zona_df <- base_med |>
+  group_by(crisis, gba, anio, trimestre) |>
+  summarise(t = media_ponderada(pobre, ponderador_ingreso), .groups = "drop") |>
+  group_by(crisis, gba) |>
+  summarise(minimo = 100 * min(t), maximo = 100 * max(t), .groups = "drop")
+
+rango_zona <- function(crisis_i, gba_i) {
+  r <- rango_zona_df |> filter(crisis == crisis_i, gba == gba_i)
+  paste0(fmt_pct1(round(r$minimo, 1)), "% y ", fmt_pct1(round(r$maximo, 1)), "%")
+}
+
+# (b) Intensidad entre HOGARES POBRES: brecha relativa media (en %), que mide
+# qué fracción de la línea le falta al hogar pobre para alcanzarla. Después de
+# cada crisis y por zona.
+intensidad_df <- base_med |>
+  filter(momento == "Despues", pobre == 1) |>
+  group_by(crisis, gba) |>
+  summarise(
+    brecha_rel = 100 * media_ponderada(brecha_pobreza_rel, ponderador_ingreso),
+    .groups = "drop"
+  )
+
+brecha_rel_pobres <- function(crisis_i, gba_i) {
+  v <- intensidad_df |> filter(crisis == crisis_i, gba == gba_i) |> pull(brecha_rel)
+  fmt_pct1(round(v, 1))
+}
+
+# (c) Hogares NO pobres pero cercanos a la línea (ratio ingreso/línea < 1,25),
+# como medida de la "zona gris" de vulnerabilidad. Después de cada crisis.
+cerca_linea_df <- base_med |>
+  filter(momento == "Despues") |>
+  group_by(crisis, gba) |>
+  summarise(
+    p = 100 * media_ponderada(cerca_linea_pobreza, ponderador_ingreso),
+    .groups = "drop"
+  )
+
+cerca_linea <- function(crisis_i, gba_i) {
+  v <- cerca_linea_df |> filter(crisis == crisis_i, gba == gba_i) |> pull(p)
+  fmt_pct1(round(v, 1))
+}
+
+# (d) Cambio diferencial: cuántos puntos porcentuales se movió la tasa de
+# pobreza entre "antes" y "después" en cada zona (positivo = aumentó).
+delta_df <- base_med |>
+  group_by(crisis, gba, momento) |>
+  summarise(t = media_ponderada(pobre, ponderador_ingreso), .groups = "drop") |>
+  pivot_wider(names_from = momento, values_from = t) |>
+  mutate(delta_pp = 100 * (Despues - Antes))
+
+delta_zona <- function(crisis_i, gba_i) {
+  v <- delta_df |> filter(crisis == crisis_i, gba == gba_i) |> pull(delta_pp)
+  fmt_pct1(round(abs(v), 1))
+}
+```
+
+# Objetivos y motivación
+
+La pregunta de fondo de este trabajo no es solamente *cuánta* pobreza por ingresos hay en el Gran Buenos Aires, sino *por qué* los hogares de los **Partidos del Gran Buenos Aires (GBA)** —el conurbano bonaerense— aparecen sistemáticamente más expuestos a la pobreza que los de la **Ciudad Autónoma de Buenos Aires (CABA)**. Que el conurbano tenga tasas más altas es un hecho conocido (al menos como representación social); lo que nos interesa es entender qué hay detrás de esa diferencia. Para eso construimos una base propia que permite mirar, hogar por hogar, si el **ingreso total familiar** alcanza a cubrir una línea de pobreza que tiene en cuenta cuántas personas viven en el hogar y qué necesidades tienen. No se busca reproducir la cifra oficial del INDEC, sino disponer de una medición transparente y desagregada sobre la que se pueda razonar.
+
+Debe notarse que' comparar CABA con los Partidos del GBA tiene sentido porque, aunque forman parte del mismo aglomerado urbano y comparten un mercado de trabajo, son territorios con estructuras sociales y niveles de ingreso muy distintos. Hablar de "pobreza del Gran Buenos Aires" en bloque promedia situaciones que conviene separar: detrás de ese promedio hay una **brecha territorial** persistente que es, en sí misma, parte del objeto de estudio.
+
+Esa brecha no se entiende bien mirando solo la tasa de pobreza. Dos hogares con el mismo ingreso pueden estar en situaciones opuestas según a cuántas personas deba alcanzar ese ingreso y cuántas lo aporten. Por eso el análisis se apoya en la **composición del hogar**, a través de un conjunto de variables que conviene precisar desde el inicio:
+
+- Los **adultos equivalentes** convierten a cada integrante en una fracción de adulto según su edad y sexo, partiendo de que un niño o una persona mayor consumen menos que un adulto en edad activa. La suma de esas fracciones es una medida de la **necesidad de consumo** del hogar y es lo que, multiplicado por el costo de la canasta, define cuánta plata necesita para no ser pobre: a más adultos equivalentes, más alta su línea.
+- La **tasa de dependencia** relaciona a los integrantes dependientes (menores de 18 y mayores de 65) con los adultos en edad activa (18 a 64). Aproxima cuántas personas debe "sostener" cada adulto potencialmente activo.
+- El **sostén económico** se mide por la cantidad de **perceptores de ingreso**, es decir, integrantes con ingreso propio positivo. Indica cuántas personas sostienen efectivamente al hogar: pocos perceptores para muchas necesidades es una señal de fragilidad, incluso con empleo.
+- Distinguimos, además, dos dimensiones de la pobreza misma. La **incidencia** es qué proporción de hogares cae por debajo de la línea; la **intensidad** es cuán lejos de la línea quedan los que sí son pobres. Un territorio puede tener más pobres y, además, pobres más profundos: ambas cosas hacen a su vulnerabilidad.
+
+El estudio mira estos rasgos alrededor de **dos crisis**, comparando trimestres anteriores y posteriores a cada una: el **bloque 2007–2011** alrededor de la crisis financiera internacional de **2009**, y el **bloque 2018–2022** alrededor de la crisis del **2020**. Usamos crisis como punto de observación porque funcionan como pruebas de esfuerzo: cuando los ingresos se comprimen, queda a la vista qué hogares tienen menos margen para amortiguar el golpe, y la vulnerabilidad estructural se vuelve visible. Elegimos estas dos en particular porque son shocks de naturaleza muy diferente y separados por más de una década: el de 2009 fue externo —importado del sistema financiero internacional— y ocurrió en una fase de crecimiento y recuperación del empleo, tras la cual la pobreza tendió a bajar; el de 2020 fue interno y sanitario —un freno abrupto de la actividad por la pandemia—, en un contexto previo de estancamiento y alta inflación, tras el cual la pobreza se mantuvo elevada. Contrastar dos episodios tan distintos permite preguntarse si la desventaja del conurbano y los rasgos de los hogares que la acompañan son un patrón **estructural**, que reaparece más allá del tipo de shock, o apenas un fenómeno coyuntural.
+
+
+## Pregunta e hipótesis
+**Pregunta.** ¿En qué medida la composición demográfica y económica de los hogares ayuda a comprender por qué los Partidos del GBA son más vulnerables a la pobreza que CABA--tanto en incidencia como en intensidad— en los períodos posteriores a las crisis de 2009 y 2020?
+
+**Hipótesis principal.** En los Partidos del GBA la pobreza no solo es más frecuente que en CABA, sino también más profunda, y esa mayor vulnerabilidad se vincula con la estructura de los hogares —más numerosos, con más adultos equivalentes y más dependientes— y no únicamente con un menor nivel de ingreso.
+
+Esta hipótesis se apoya en cuatro "conjeturas"  más específicas sobre los mecanismos:
+
+1. **Carga equivalente.** Los hogares del conurbano tienen más adultos equivalentes, lo que eleva su línea de pobreza y, por lo tanto, su probabilidad de quedar por debajo de ella.
+2. **No es solo desempleo.** La pobreza del conurbano no se explica únicamente por la falta de trabajo: hay hogares con ocupados y perceptores que igualmente no superan la línea, por una relación desfavorable entre ingresos, perceptores y carga familiar.
+3. **Infancia.** La presencia de menores está asociada a mayor pobreza, y esa asociación es más fuerte en los Partidos del GBA.
+4. **Jefe ocupado.** Tener un jefe de hogar ocupado reduce la pobreza pero no la elimina, sobre todo en el conurbano.
+
+
+# Metodología
+
+## Fuentes de datos
+
+El análisis combina tres tipos de fuentes:
+
+1. **Encuesta Permanente de Hogares (EPH) del INDEC**, en sus bases de **hogares** e **individuos**. De la base de hogares se toman el ingreso total familiar, los ponderadores muestrales, el aglomerado y el trimestre; de la base de individuos, la edad, el sexo, la relación con el jefe de hogar, la condición de actividad y el ingreso individual de cada integrante.
+2. **Series de Canasta Básica Total (CBT) y Canasta Básica Alimentaria (CBA) del INDEC**, expresadas por adulto equivalente.
+3. **Índice de Precios al Consumidor (IPC) de CIFRA**, utilizado para reconstruir la canasta del primer bloque (se explica más abajo).
+
+La unidad de análisis es el **hogar**. El recorte territorial usa los aglomerados EPH **32 (CABA)** y **33 (Partidos del GBA)**. El recorte temporal incluye los años **2007, 2008, 2010, 2011, 2018, 2019, 2021 y 2022**. Se **excluye el tercer trimestre de 2007** porque la EPH no publicó esa serie, de modo que el proyecto trabaja con **`r n_periodos` trimestres**.
+
+## Limpieza, identificador de hogar y filtros
+
+El script de limpieza (`01_limpieza_eph.R`) homogeniza los nombres de variables, convierte a numérico aquellas que pueden venir como texto (con coma o punto decimal, según la serie), filtra los aglomerados 32 y 33 y arma un **identificador único de hogar** combinando período, `codusu` y número de hogar (`id_hogar = periodo_codusu_nro_hogar`). Ese identificador es la clave que permite unir de forma consistente la base de individuos con la de hogares y, más tarde, con la canasta. También se construye el ponderador de ingresos (`pondih` cuando está disponible y `pondera` en su defecto) y se marcan los hogares **sin respuesta de ingresos** (códigos de decil de ingreso o de consumo iguales a 12) y los de **ingreso declarado cero**, que luego quedan fuera de la medición para no confundir ausencia de dato con pobreza.
+
+## Adulto equivalente: qué es y para qué sirve
+
+El **adulto equivalente** es la pieza que permite comparar hogares de distinto tamaño y composición con una misma vara. La idea es simple: no todos los integrantes de un hogar tienen las mismas necesidades de consumo. Un bebé, un niño en edad escolar o una persona mayor requieren menos calorías y gasto que un adulto en plena edad activa. La escala de equivalencias —la misma que usa el INDEC para construir sus canastas— asigna a cada persona un coeficiente según sexo y edad, tomando como referencia a un **varón adulto de 30 a 45 años, que vale 1**. Así, una niña de tres años pesa alrededor de 0,5 y una persona mayor de 75, alrededor de 0,65 (script `02_adulto_equivalente.R`).
+
+Al sumar coeficientes de todos sus integrantes, cada hogar queda descrito por su cantidad de **adultos equivalentes**: una medida de su **necesidad económica** más fina que el simple número de personas. Un hogar de dos adultos y dos niños no "necesita" lo mismo que cuatro adultos; equivale, quizás, a unos tres adultos. Esto es decisivo para medir pobreza, porque la linea del hogar s obtiene multiplicando el costo de la canasta **por adulto equivalente** por esa cantidad. Sin este ajuste, dos errores opuestos aparecerían: los hogares numerosos con niños se verían artificialmente "acomodados" (piensese que su ingreso se compararía contra una vara demasiado baja) y se perdería de vista que buena parte de su tensión económica proviene de su propia composición. La tabla siguiente ilustra cómo varía el coeficiente con la edad y el sexo:
+
+```{r}
+#| label: tabla-adulto-equivalente
+#| code-summary: "Coeficientes de adulto equivalente (extracto)"
+#| tbl-cap: "Coeficientes de adulto equivalente por sexo y edad (extracto ilustrativo). Fuente: elaboración propia con la tabla de equivalencias del INDEC."
+
+# Mostramos solo algunos tramos representativos para no saturar
+tabla_adulto_eq |>
+  filter(edad_desde %in% c(0, 4, 10, 18, 30, 61, 76)) |>
+  transmute(
+    Sexo = sexo,
+    `Edad desde` = edad_desde,
+    `Edad hasta` = edad_hasta,
+    `Adulto equivalente` = adulto_equiv
+  ) |>
+  arrange(Sexo, `Edad desde`) |>
+  kbl(align = "lccc") |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+```
+
+En el mismo paso se construyen, a nivel de hogar, los indicadores de composición que estructuran el análisis. Por un lado, los **demográficos**: número de **menores de 18**, de adultos de 18 a 64 y de **mayores de 65**, la suma de **dependientes** (menores más mayores) y la **tasa de dependencia**. Por otro, los **laborales y de ingresos**: la cantidad de **ocupados** (integrantes con empleo), la de **perceptores de ingreso** y razones derivadas como adultos equivalentes por perceptor o por ocupado, que resumen la carga que recae sobre cada sostén. Un integrante se considera **perceptor** cuando declara un ingreso individual total (`p47t`) positivo; la cantidad de perceptores aproxima, entonces, cuántas personas sostienen económicamente al hogar —que puede ser menor que la cantidad de ocupads puesto que no todo ocupado declara ingreso ni todo perceptor está ocupado necesariamente—.
+
+## Construcción de la línea de pobreza y reconstrucción de la CBT
+
+La línea de pobreza de cada hogar surge de multiplicar la **CBT por adulto equivalente** del trimestre por los **adultos equivalentes del hogar**:
+
+$$
+\text{Línea}_{\text{hogar}} = \text{CBT}_{\text{adulto eq.}} \times \text{Adultos equivalentes}_{\text{hogar}}
+$$
+
+Aquí aparece la decisión metodológica más relevante del trabajo desarrollado. La  validez de la línea de pobreza calculada es contingente al precio de la canasta que la sostiene. Para el **bloque 2018–2022** usamos la **CBT oficial del INDEC**, que en esos años proviene de un índice de precios normalizado y es la referencia natural. Para el **bloque 2007–2011**, en cambio, usar la canasta oficial sería un problema. Ese período fue aquel en que se dio la **intervención del INDEC** (2007–2015), durante la cual el organismo **"subestimó" la inflación** de manera reconocida. Una inflación oficial más baja que la real arrastra así una canasta que crece demasiado lento; con una canasta subestimada, entonces, la línea de pobreza queda artificialmente baja y, consecuentemente, la pobreza medida resulta menor que la que sería efectiva. Claramente, el sesgo no sería neutro para nuestra comparación: y afectaría sobre todo al "antes" del bloque de 2009 y distorsionaría justamente la dinámica temporal que queremos observar.
+
+Para no quedar atados a una medición oficial distorsionada, **reconstruimos** la canasta de ese bloque con el **IPC de CIFRA** (Centro de Investigación y Formación de la República Argentina), uno de los índices alternativos elaborados por fuera del INDEC y usados habitualmente para ese período. La estrategia no inventa un nivel: toma como ancla el valor de la CBT en **2007 T1** —un punto temprano, cercano al inicio de la intervención— y deja que sea la **trayectoria de precios de CIFRA**, y no la oficial, la que actualice la canasta trimestre a trimestre. De ese modo el costo de vida del primer bloque sigue una construcción más verosímil y la comparación *antes/después* de 2009 recupera asísentido:
+
+$$
+\text{CBT}^{\text{CIFRA}}_{t} = \text{CBT}_{2007\text{T1}} \times \frac{\text{IPC-CIFRA}_{t}}{\text{IPC-CIFRA}_{2007\text{T1}}}
+$$
+
+Como la EPH es trimestral, las series mensuales de canasta e IPC se promedian por trimestre. La tabla siguiente muestra el valor de la CBT final por adulto equivalente (primer trimestre de cada año) y la fuente efectivamente utilizada:
+
+```{r}
+#| label: tabla-cbt
+#| code-summary: "CBT final por adulto equivalente y fuente"
+#| tbl-cap: "Canasta Básica Total final por adulto equivalente (primer trimestre de cada año) y fuente utilizada. Fuente: elaboración propia con series de CBT-INDEC e IPC-CIFRA."
+
+cbt_proyecto |>
+  filter(trimestre == 1) |>
+  transmute(
+    Año = anio,
+    `CBT por adulto equiv. ($)` = round(cbt_final_adulto_equiv, 0),
+    Fuente = fuente_cbt
+  ) |>
+  kbl(align = "lrl", format.args = list(big.mark = ".", decimal.mark = ",")) |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) |>
+  pack_rows("Bloque 2007–2011 (crisis de 2009)", 1, 4) |>
+  pack_rows("Bloque 2018–2022 (crisis de 2020)", 5, 8)
+```
+
+
+## Consecuencia para la comparabilidad
+Como la línea del primer bloque está construida con una fuente distinta (IPC-CIFRA) a la del segundo (CBT oficial), las tasas de pobreza **no son estrictamente comparables entre bloques**. La comparación válida es **dentro de cada bloque** (antes vs después de cada crisis y CABA vs Partidos del GBA). Por eso,, en los gráficos los dos episodios se presentan en paneles separados y nunca se unen con una misma serie continua.
+
+
+## Pobreza, intensidad, ponderación y momentos de crisis
+
+Con la línea ya construida, la clasificación es directa: un hogar es **pobre** si su ingreso total familiar queda **por debajo** de su línea, y **no pobre** si la iguala o supera. Solo entran a la medición los hogares con información utilizable —ingreso válido (sin no respuesta y no negativo), adulto equivalente válido y CBT disponible—; los demás quedan fuera para no confundir falta de dato con pobreza. De los **`r fmt_mil(n_total)`** hogares del recorte, **`r fmt_mil(n_fuera)`** (`r pct_fuera`%) quedan fuera de medición —en su enorme mayoría por no respuesta de ingresos— y el análisis trabaja sobre **`r fmt_mil(n_medibles)`** hogares efectivamente medibles.
+
+Esa condición binaria, sin embargo, no agota el fenómeno. Para captar la **intensidad** de la pobreza trabajamos con el cociente entre el ingreso del hogar y su línea (`ratio = ingreso / línea`): valores por debajo de 1 indican pobreza y, cuanto más cerca de 0, más profunda. Entre los hogares pobres calculamos además la **brecha relativa**, `(línea − ingreso) / línea`, que expresa qué fracción de la línea le falta al hogar para alcanzarla —una brecha de 0,30 significa que le falta el 30% de su línea—. La brecha relativa es preferible a la brecha en pesos para comparar años de inflación muy distinta, porque es una proporción y no un monto en moneda corriente. Incidencia e intensidad responden a preguntas diferentes —cuántos hogares son pobres y cuán pobres son— y las dos hacen falta para poner a prueba la hipótesis.
+
+Todos los resultados se presentan **ponderados** por el ponderador de ingresos del hogar (`pondih`, o `pondera` en su defecto). La EPH es una muestra en la que cada hogar representa a un número de hogares de la población; ponderar es lo que permite leer las tasas como proporciones poblacionales y no como frecuencias de la muestra cruda.
+
+Finalmente, dentro de cada crisis se definen dos momentos:
+
+| Crisis | "Antes" | "Después" |
+|---|---|---|
+| Crisis de **2009** | 2007 y 2008 | 2010 y 2011 |
+| Crisis de **2020** | 2018 y 2019 | 2021 y 2022 |
+
+: Definición de "antes" y "después" para cada crisis. El año del shock queda en el medio y no se asigna a ningún momento. {.striped tbl-colwidths="[34,33,33]"}
+
+# Resultados
+La evidencia se ordena siguiendo la lógica de la pregunta. Primero medimos la **incidencia** —cuántos hogares son pobres en cada zona y cómo se mueve alrededor de cada crisis— y la brecha territorial que de allí surge. Luego miramos la **intensidad**: cuán lejos de la línea quedan los hogares que sí son pobres. Recién entonces abrimos la "caja" del hogar, con la **composición demográfica** (adultos equivalentes y menores) y el **sostén económico** (perceptores y ocupación del jefe), que son los mecanismos por los que las hipótesis esperan explicar la mayor vulnerabilidad del conurbano. Un mapa de calor cierra la sección a modo de síntesis. Todas las cifras están ponderadas y todas las comparaciones son **descriptivas**: muestran asociaciones, no causalidad.
+
+## Evolución temporal de la pobreza por zona
+
+```{r}
+#| label: fig-g1
+#| code-summary: "Incorporar gráfico 1"
+#| fig-cap: "Incidencia trimestral ponderada de pobreza en hogares, por zona. Paneles separados por crisis; los períodos discontinuos no se unen. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "100%"
+
+include_graphics(here("output", "graficos", "01_serie_pobreza_zona.png"))
+```
+
+El gráfico muestra la tasa de pobreza trimestral de hogares por zona, con un panel por crisis. Cada punto es la proporción ponderada de hogares pobres en ese trimestre. El primer hallazgo —el que ordena todo el trabajo— aparece de inmediato: **en todos los trimestres los Partidos del GBA tienen tasas más altas que CABA**, y la distancia entre ambas curvas nunca se cierra. En el bloque de 2009 la pobreza del conurbano oscila entre `r rango_zona("Crisis 2009","Partidos del GBA")`, mientras que CABA se mantiene entre `r rango_zona("Crisis 2009","CABA")`; en el bloque de 2020 el conurbano se mueve en niveles mucho más altos, entre `r rango_zona("Crisis 2020","Partidos del GBA")`, frente a un rango de `r rango_zona("Crisis 2020","CABA")` en CABA. La diferencia de **niveles** entre bloques debe leerse con cautela, porque cambia la fuente de la canasta (ver Metodología); pero la **jerarquía territorial** —el conurbano siempre por encima— es robusta dentro de cada bloque y constante a lo largo de quince años. Esa persistencia es la primera señal de que la desventaja del conurbano es estructural y no el accidente de un trimestre puntual.
+
+## Cambio antes y después de cada crisis
+
+```{r}
+#| label: fig-g2
+#| code-summary: "Incorporar gráfico 2"
+#| fig-cap: "Tasa de pobreza ponderada promedio antes y después de cada crisis, por zona. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "95%"
+
+include_graphics(here("output", "graficos", "02_cambio_antes_despues.png"))
+```
+
+Este gráfico compara el promedio ponderado de los trimestres *antes* y *después* de cada crisis. Las dos dejan dinámicas **opuestas**, lo que confirma por qué valía la pena compararlas. Alrededor de **2009** la pobreza **baja** en ambas zonas: en CABA pasa de `r pz("Crisis 2009","Antes","CABA")`% a `r pz("Crisis 2009","Despues","CABA")`% y en los Partidos del GBA de `r pz("Crisis 2009","Antes","Partidos del GBA")`% a `r pz("Crisis 2009","Despues","Partidos del GBA")`%, en línea con la recuperación del empleo y de los ingresos posterior al rebote de la economía. Alrededor de **2020**, en cambio, la pobreza **sube**: en CABA de `r pz("Crisis 2020","Antes","CABA")`% a `r pz("Crisis 2020","Despues","CABA")`% y en el conurbano de `r pz("Crisis 2020","Antes","Partidos del GBA")`% a `r pz("Crisis 2020","Despues","Partidos del GBA")`%. El segundo episodio se asocia, así, a un nivel posterior **más alto y persistente** que el primero, y el deterioro se concentra en los Partidos del GBA: la misma desventaja territorial reacciona de manera distinta según el tipo de shock.
+
+## Brecha territorial de pobreza
+
+```{r}
+#| label: fig-g3
+#| code-summary: "Incorporar gráfico 3"
+#| fig-cap: "Brecha de pobreza entre Partidos del GBA y CABA, en puntos porcentuales. Valores positivos indican mayor pobreza en el conurbano. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "90%"
+
+include_graphics(here("output", "graficos", "03_brecha_territorial.png"))
+```
+
+La brecha territorial resume en un solo número la distancia entre zonas: la diferencia, en puntos porcentuales (pp), entre la tasa del conurbano y la de CABA. Todos los valores son **positivos**: la pobreza es siempre mayor en los Partidos del GBA. Pero su magnitud se mueve, y en sentidos contrarios. Alrededor de 2009 la brecha pasa de `r brecha_pp("Crisis 2009","Antes")` pp a `r brecha_pp("Crisis 2009","Despues")` pp, es decir, se **achica**; alrededor de 2020 pasa de `r brecha_pp("Crisis 2020","Antes")` pp a `r brecha_pp("Crisis 2020","Despues")` pp, se **ensancha**. Detrás de ese ensanchamiento hay un cambio diferencial nítido: tras 2020 la pobreza subió alrededor de `r delta_zona("Crisis 2020","Partidos del GBA")` pp en el conurbano y solo `r delta_zona("Crisis 2020","CABA")` pp en CABA —casi el doble—, mientras que tras 2009 había caído más en el conurbano (`r delta_zona("Crisis 2009","Partidos del GBA")` pp) que en CABA (`r delta_zona("Crisis 2009","CABA")` pp). La crisis reciente, entonces, no solo elevó la pobreza: la repartió de manera más desigual entre los dos territorios, ensanchando la distancia que el promedio metropolitano tiende a ocultar.
+
+## Intensidad: distribución del ingreso respecto de la línea
+
+```{r}
+#| label: fig-g4
+#| code-summary: "Incorporar gráfico 4"
+#| fig-cap: "Densidad ponderada del cociente ingreso familiar / línea de pobreza, después de cada crisis. La línea punteada marca el umbral (cociente = 1). Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "100%"
+
+include_graphics(here("output", "graficos", "04_distribucion_ratio_ingreso.png"))
+```
+
+Este es el gráfico de la **intensidad**: en vez de la condición binaria pobre/no pobre, muestra la distribución completa del cociente ingreso/línea, con el umbral en 1 (a su izquierda quedan los hogares pobres). Permite ver no solo cuántos hogares son pobres, sino cuán lejos están del umbral. La densidad del conurbano aparece **desplazada hacia la izquierda** respecto de CABA: más masa por debajo de 1 y una franja importante apenas por encima de la línea —la **zona gris** de hogares no pobres pero frágiles—. Esa zona gris es, de hecho, más ancha en el conurbano: tras 2020, el `r cerca_linea("Crisis 2020","Partidos del GBA")`% de los hogares no pobres del GBA quedan a menos de 1,25 veces su línea, contra el `r cerca_linea("Crisis 2020","CABA")`% en CABA.
+
+La intensidad entre los hogares ya pobres matiza la historia. Tras 2020, los pobres del conurbano están en promedio algo más lejos de la línea que los de CABA: les falta el `r brecha_rel_pobres("Crisis 2020","Partidos del GBA")`% de su línea para alcanzarla, frente al `r brecha_rel_pobres("Crisis 2020","CABA")`% en CABA. En el bloque de 2009 ocurre lo contrario —los pocos pobres porteños aparecen más profundos (`r brecha_rel_pobres("Crisis 2009","CABA")`% frente al `r brecha_rel_pobres("Crisis 2009","Partidos del GBA")`% del conurbano)—, pero conviene leerlo con cautela, porque en CABA los hogares pobres son tan pocos que la medida se vuelve inestable. En síntesis, la desventaja del conurbano es ante todo de **incidencia** —muchos más hogares pobres— y, en el episodio reciente, también de **intensidad**.
+
+## Adultos equivalentes por zona y situación de pobreza
+
+```{r}
+#| label: fig-g5
+#| code-summary: "Incorporar gráfico 5"
+#| fig-cap: "Distribución de adultos equivalentes del hogar después de cada crisis, por zona y situación de pobreza (escala recortada en el percentil 99). Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "100%"
+
+include_graphics(here("output", "graficos", "05_adultos_equivalentes.png"))
+```
+
+Sobre el hogar. Los adultos equivalentes miden la **necesidad de ingreso**: cuantos más, más alta es la línea de pobreza del hogar. El gráfico, que cruza zona y situación de pobreza, muestra un patrón nítido: los **hogares pobres tienen sistemáticamente más adultos equivalentes** que los no pobres, en ambas zonas y en ambas crisis; y los del conurbano son, en promedio, más grandes que los de CABA. La combinación es la que importa: en los Partidos del GBA conviven hogares más numerosos con ingresos más bajos, de modo que una misma cifra de ingreso debe repartirse entre más necesidades. El ajuste por adulto equivalente es lo que vuelve visible este mecanismo: sin él, los hogares grandes con ingreso medio parecerían acomodados cuando en realidad están tensionados por su propia composición. Es la evidencia directa de la **primera conjetura** (carga equivalente): más adultos equivalentes elevan la línea y, con ella, la exposición a caer por debajo.
+
+## Presencia de menores y pobreza
+
+```{r}
+#| label: fig-g6
+#| code-summary: "Incorporar gráfico 6"
+#| fig-cap: "Tasa de pobreza ponderada según presencia de menores en el hogar, por zona, antes y después de cada crisis. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "100%"
+
+include_graphics(here("output", "graficos", "06_menores_y_pobreza.png"))
+```
+
+La presencia de niños y adolescentes es uno de los rasgos más asociados a la pobreza. El gráfico contrasta hogares **con** y **sin** menores: en todos los paneles, los que tienen menores muestran tasas mucho más altas. El contraste es extremo en los Partidos del GBA después de 2020, donde la pobreza de los hogares con menores trepa al **`r pob_menores_gba_2020`%**, frente a cerca del 20% en los que no tienen menores; en CABA la diferencia  es del mismo signo, aunque sobre niveles más bajos. Esto apunta a una fuerte **infantilización de la pobreza**: los hogares con niños no solo tienen líneas más altas (por más adultos equivalentes), sino que suelen sumar también más dependientes por cada adulto activo. Es exactamente lo que anticipaba la **tercera conjetura** (infancia): la presencia de menores se asocia a más pobreza y con más fuerza en el conurbano. La asociación es descriptiva, pero consistente con la lectura de composición del hogar.
+
+## Sostén económico del hogar: perceptores y ocupación del jefe
+
+```{r}
+#| label: fig-g7
+#| code-summary: "Incorporar gráfico 7"
+#| fig-cap: "Mediana ponderada de adultos equivalentes sostenidos por cada perceptor de ingresos, después de cada crisis, por zona. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "90%"
+
+include_graphics(here("output", "graficos", "07_carga_por_perceptor.png"))
+```
+
+Este indicador mide la **carga económica por perceptor**: cuántos adultos equivalentes debe sostener, en la mediana, cada persona que aporta ingresos. En CABA el valor ronda **1 adulto equivalente por perceptor**, mientras que en los Partidos del GBA se ubica en torno a **1,27**. Dicho de otro modo, en el conurbano cada perceptor sostiene más "equivalentes" que en Ciudad. Esto importa porque un mismo ingreso individual rinde menos cuando debe repartirse entre más necesidades y es la primera mitad de la **segunda conjetura** (no es solo desempleo): y no se trata únicamente de cuántos trabajan, sino de cuánta carga recae sobre cada uno de los que aportan.
+
+```{r}
+#| label: fig-g8
+#| code-summary: "Incorporar gráfico 8"
+#| fig-cap: "Tasa de pobreza ponderada según la condición laboral del jefe de hogar, después de cada crisis, por zona. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "95%"
+
+include_graphics(here("output", "graficos", "08_pobreza_jefe_ocupado.png"))
+```
+
+La ocupación del jefe de hogar **reduce** la pobreza, pero no la elimina en su enteridad, y esto completa la **segunda conjetura** y prueba la **cuarta** (jefe ocupado). Tras la crisis de 2020, en los Partidos del GBA un hogar con **jefe ocupado** todavía registra una pobreza cercana al **`r pob_jefeocup_gba_2020`%**, apenas por debajo del nivel de los hogares con jefe no ocupado; en CABA la diferencia es del mismo orden, pero sobre niveles mucho menores. El mensaje sustantivo implicito sigue qué: el problema reciente **no se reduce a la falta de empleo**. Debe de existir una franja relevante de **trabajadores pobres** —hogares donde el jefe trabaja y aun así el ingreso familiar no cubre la canasta—, fenómeno especialmente extendido en el conurbano y coherente con la mayor carga por preceptor que vimos recién.
+
+## Síntesis de mecanismos territoriales
+
+```{r}
+#| label: fig-g9
+#| code-summary: "Incorporar gráfico 9"
+#| fig-cap: "Síntesis de mecanismos de vulnerabilidad territorial. Cada indicador se estandariza; valores positivos (naranja) indican mayor vulnerabilidad relativa en Partidos del GBA. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| out-width: "100%"
+
+include_graphics(here("output", "graficos", "09_heatmap_mecanismos.png"))
+```
+
+El mapa de calor reúne los indicadores anteriores a simple vista. Cada celda compara Partidos del GBA con CABA y se estandariza para que un mismo color signifique "más vulnerabilidad en el conurbano" en todas las filas (los indicadores protectores, como ingreso por adulto equivalente o perceptores por integrante, se invierten de signo). La lectura no es de magnitudes sino de **patrones**: el conurbano aparece de manera consistente con mayor tasa de pobreza, más adultos equivalentes, más presencia de menores, menor ingreso por adulto equivalente y más pobreza incluso con jefe ocupado. La acumulación de desventajas 9y no un único factor) es lo que sostiene la brecha.
+
+## Tablas síntesis
+
+La primera tabla resume el resultado central del trabajo —la tasa de pobreza ponderada por crisis, momento y zona— y agrega la brecha territorial en cada caso.
+
+```{r}
+#| label: tabla-sintesis-pobreza
+#| code-summary: "Tabla 1: tasa de pobreza y brecha territorial"
+#| tbl-cap: "Tabla 1. Tasa de pobreza ponderada de hogares por crisis, momento y zona, y brecha territorial. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+
+tabla1 <- pobreza_zona |>
+  mutate(tasa = 100 * tasa) |>
+  select(crisis, momento, gba, tasa) |>
+  pivot_wider(names_from = gba, values_from = tasa) |>
+  mutate(
+    momento = factor(momento, levels = c("Antes", "Despues"), labels = c("Antes", "Después")),
+    # Redondeamos cada zona a un decimal y luego calculamos la brecha sobre los
+    # valores redondeados, para que coincida exactamente con la del texto.
+    caba_r = round(CABA, 1),
+    gba_r = round(`Partidos del GBA`, 1)
+  ) |>
+  arrange(crisis, momento) |>
+  transmute(
+    Crisis = crisis,
+    Momento = momento,
+    `CABA (%)` = fmt_pct1(caba_r),
+    `Partidos del GBA (%)` = fmt_pct1(gba_r),
+    `Brecha (pp)` = fmt_pct1(gba_r - caba_r)
+  )
+
+tabla1 |>
+  kbl(align = "llrrr") |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed")) |>
+  collapse_rows(columns = 1, valign = "top")
+```
+
+La segunda tabla compara la **composición** de hogares pobres y no pobres en el período posterior a cada crisis, por zona. Confirma que los hogares pobres son más numerosos, tienen más adultos equivalentes y más menores, cuentan con **menos perceptores** y registran un ingreso por adulto equivalente mucho menor.
+
+```{r}
+#| label: tabla-sintesis-composicion
+#| code-summary: "Tabla 2: composición de hogares pobres y no pobres"
+#| tbl-cap: "Tabla 2. Composición media de hogares pobres y no pobres después de cada crisis, por zona. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+
+tabla2 <- base_med |>
+  filter(momento == "Despues", situacion_pobreza %in% c("Pobre", "No pobre")) |>
+  group_by(crisis, gba, situacion_pobreza) |>
+  summarise(
+    Integrantes      = media_ponderada(n_integrantes, ponderador_ingreso),
+    `Adultos equiv.` = media_ponderada(adulto_equiv_hogar, ponderador_ingreso),
+    Menores          = media_ponderada(n_menores_18, ponderador_ingreso),
+    Ocupados         = media_ponderada(n_ocupados, ponderador_ingreso),
+    Perceptores      = media_ponderada(n_perceptores_ingreso, ponderador_ingreso),
+    .groups = "drop"
+  ) |>
+  mutate(
+    situacion_pobreza = factor(situacion_pobreza, levels = c("Pobre", "No pobre")),
+    # Dos decimales fijos y coma decimal para todas las medias de composición.
+    across(c(Integrantes, `Adultos equiv.`, Menores, Ocupados, Perceptores),
+           ~fmt_num2(round(.x, 2)))
+  ) |>
+  arrange(crisis, gba, situacion_pobreza) |>
+  rename(Crisis = crisis, Zona = gba, Situación = situacion_pobreza)
+
+tabla2 |>
+  kbl(align = "lllrrrrr") |>
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed")) |>
+  collapse_rows(columns = 1:2, valign = "top")
+```
+
+# Conclusiones
+
+La pregunta que ordenó el trabajo era por qué los hogares de los Partidos del GBA son más vulnerables a la pobreza que los de CABA —en incidencia y en intensidad— y cuánto de esa diferencia se entiende mirando la estructura de los hogares. La evidencia descriptiva permite responderla con bastante claridad a la vez matizarla donde corresponde.
+
+La **hipótesis principal se sostiene**. En incidencia, el conurbano tiene tasas más altas que CABA en los `r n_periodos` trimestres analizados, sin una sola excepción, y esa distancia no es estable: tras la crisis de 2020 se ensanchó porque la pobreza subió casi el doble en el conurbano (`r delta_zona("Crisis 2020","Partidos del GBA")` pp) que en CABA (`r delta_zona("Crisis 2020","CABA")` pp). En intensidad la imagen es más matizada: los pobres del conurbano quedan algo más lejos de la línea que los porteños tras 2020 (`r brecha_rel_pobres("Crisis 2020","Partidos del GBA")`% frente a `r brecha_rel_pobres("Crisis 2020","CABA")`% de brecha relativa), pero no en 2009, donde los pocos pobres de CABA aparecen más profundos. La desventaja territorial, entonces, es nítida y robusta en incidencia, y se acompaña de mayor intensidad en el episodio reciente. Y, como anticipaba la hipótesis, esa desventaja viene de la mano de hogares con una **estructura distinta**, no solo de un ingreso más bajo.
+
+Las cuatro conjeturas sobre los mecanismos resisten la lectura de los datos. (1) **Carga equivalente:** los hogares pobres tienen sistemáticamente más adultos equivalentes que los no pobres, y los del conurbano son más grandes; el ajuste por adulto equivalente muestra que parte de su pobreza nace de una línea más alta, no solo de un ingreso menor. (2) **No es solo desempleo:** existe una franja clara de trabajadores pobres —tras 2020, un hogar del conurbano con jefe ocupado todavía es pobre en cerca del `r pob_jefeocup_gba_2020`% de los casos— y cada perceptor del conurbano sostiene más adultos equivalentes que en CABA. (3) **Infancia:** la presencia de menores se asocia con tasas mucho mayores, y con más fuerza en el conurbano (`r pob_menores_gba_2020`% en hogares del GBA con menores tras 2020). (4) **Jefe ocupado:** tener un jefe ocupado reduce la pobreza pero no la elimina, especialmente en el conurbano.
+
+El sentido sustantivo de todo esto es que la brecha entre CABA y el conurbano no descansa en un único factor, sino en una **acumulación de desventajas** que se refuerzan: hogares más numerosos y con más niños, con líneas de pobreza más altas, sostenidos por menos perceptores y, encima, con ingresos laborales que muchas veces no alcanzan. Que el patrón reaparezca alrededor de dos crisis tan distintas —una externa y con recuperación, otra interna y persistente— refuerza la idea de que se trata de un rasgo **estructural** del territorio y no del efecto puntual de un shock. La crisis de 2020 no creó la brecha: la ensanchó. Por eso una lectura centrada solo en el nivel de ingreso, o solo en el empleo, deja afuera buena parte del problema; el **ajuste por composición del hogar** es lo que permite ver por qué, a igualdad de ingreso, son los hogares del conurbano los que con más frecuencia quedan por debajo de la línea.
+
+# Limitaciones y posibles mejoras
+
+ El análisis es **descriptivo**: ordena la comparación en los periodos "antes" y "después" de las crisis, pero no aísla el efecto de las crisisrespecto de shocks exogenos:debe notarse tal limitación de  validez interna respecto de todo lo demás que ocurre entre medio —políticas, ciclo económico, cambios de la propia encuesta—, de modo que el trabajo discurre en asociaciones y patrones, no de causas. Lejos de debilitar las conclusiones, esto es coherente con la pregunta, que es justamente descriptiva: entender la brecha territorial y los rasgos de los hogares que la acompañan. La medición se apoya, además, en ingresos declarados a la EPH, que convven con subdeclaración, no respuesta e informalidad; los hogares sin dato de ingreso quedan fuera de la medición, lo que podría sesgar las tasas si esa omisión no fuera aleatoria, aunque ponderar y comparar dentro de cada bloque acota el error.
+
+La decisión metodológica más delicada —reconstruir la canasta del primer bloque con el IPC de CIFRA— es, antes que una limitación, una respuesta deliberada a un problema real: la intervención del INDEC. Esa reconstrucción mejora claramente la comparación respecto de usar una canasta oficial subestimada, pero no elimina toda la incertidumbre, porque depende del índice elegido y del trimestre base de referencia. Por eso tratamos al bloque 2007–2011 como **exploratorio** y nunca comparamos niveles entre bloques, sino dinámicas dentro de cada uno. Algo similar vale para las discontinuidades entre la EPH puntual y la continua, y para las muestras más reducidas de 2021 por la pandemia: son motivos para leer ciertos números con prudencia, no para descartarlos. El diseño del trabajo —paneles separados, ponderación, foco en comparaciones internas— está pensado, precisamente, para que esas complicaciones no invaliden la lectura.
+
+Sobre esta base, el análisis admite extensiones naturales que podrían considerarse. Un **modelo multivariado** —por ejemplo, una regresión logística de la condición de pobre sobre los rasgos del hogar— permitiría estimar la asociación de cada factor controlando por los demás, cuidando de no incluir variables que definan mecánicamente la pobreza. El **panel rotativo** de la EPH habilitaría seguir a los mismos hogares y observar entradas y salidas de la pobreza, algo que aquí no se hace al tratar las ondas como cortes transversales. Y una **desagregación más fina** dentro de los Partidos del GBA —muy heterogéneos entre sí— o una mirada **multidimensional** (vivienda, educación, acceso a servicios) enriquecerían el diagnóstico más allá del ingreso.Tales cuestiones podrían trabajarse a futuro.
