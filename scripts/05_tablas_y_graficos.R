@@ -480,53 +480,97 @@ guardar_tabla(tabla_g6, "06_menores_y_pobreza")
 # ============================================================
 
 tabla_g7 <- base_medicion |>
-  filter(momento == "Después", is.finite(adulto_equiv_por_perceptor)) |>
+  filter(
+    momento == "Después",
+    is.finite(adulto_equiv_por_perceptor)
+  ) |>
   group_by(crisis, gba) |>
   summarise(
-    carga_mediana = mediana_ponderada(adulto_equiv_por_perceptor, ponderador_ingreso),
+    carga_mediana = mediana_ponderada(
+      adulto_equiv_por_perceptor,
+      ponderador_ingreso
+    ),
     .groups = "drop"
   )
 
-segmentos_g7 <- tabla_g7 |>
+tabla_g7_brecha <- tabla_g7 |>
   mutate(gba = as.character(gba)) |>
-  pivot_wider(names_from = gba, values_from = carga_mediana)
-
-g7 <- ggplot(tabla_g7, aes(carga_mediana, crisis, color = gba)) +
-  geom_segment(
-    data = segmentos_g7,
-    aes(
-      x = CABA,
-      xend = `Partidos del GBA`,
-      y = crisis,
-      yend = crisis
+  pivot_wider(
+    names_from = gba,
+    values_from = carga_mediana
+  ) |>
+  mutate(
+    brecha_rel = (`Partidos del GBA` / CABA) - 1,
+    etiqueta_brecha = paste0(
+      "GBA: +",
+      number(100 * brecha_rel, accuracy = 1),
+      "% vs CABA"
     ),
-    inherit.aes = FALSE,
-    color = "grey65",
-    linewidth = 1.2
+    y_etiqueta = pmax(CABA, `Partidos del GBA`) + 0.10
+  )
+
+pos_g7 <- position_dodge(width = 0.72)
+
+g7 <- ggplot(
+  tabla_g7,
+  aes(
+    x = crisis,
+    y = carga_mediana,
+    fill = gba
+  )
+) +
+  geom_col(
+    position = pos_g7,
+    width = 0.62,
+    alpha = 0.92
   ) +
-  geom_point(size = 4.5) +
   geom_text(
     aes(label = number(carga_mediana, accuracy = 0.01)),
-    vjust = -1.15,
-    show.legend = FALSE,
-    size = 3.4
+    position = pos_g7,
+    vjust = -0.45,
+    size = 3.8,
+    fontface = "bold",
+    show.legend = FALSE
   ) +
-  scale_color_manual(values = colores_zona) +
-  scale_x_continuous(expand = expansion(mult = c(0.18, 0.18))) +
+  geom_label(
+    data = tabla_g7_brecha,
+    aes(
+      x = crisis,
+      y = y_etiqueta,
+      label = etiqueta_brecha
+    ),
+    inherit.aes = FALSE,
+    fill = "white",
+    color = colores_zona[["Partidos del GBA"]],
+    fontface = "bold",
+    linewidth = 0.25,
+    size = 3.5
+  ) +
+  scale_fill_manual(values = colores_zona) +
+  scale_y_continuous(
+    labels = label_number(accuracy = 0.1),
+    limits = c(0, max(tabla_g7_brecha$y_etiqueta, na.rm = TRUE) + 0.12),
+    expand = expansion(mult = c(0, 0.03))
+  ) +
   labs(
-    title = "Carga económica por perceptor después de cada crisis",
-    subtitle = "La línea une las medianas de CABA y Partidos del GBA; mayor valor implica mayor carga",
-    x = "Adultos equivalentes por perceptor", y = NULL, color = NULL,
+    title = "En Partidos del GBA cada perceptor sostiene más carga económica",
+    subtitle = "Después de cada crisis; 1,27 significa que cada perceptor sostiene 1,27 adultos equivalentes del hogar",
+    x = NULL,
+    y = "Adultos equivalentes por perceptor de ingreso",
+    fill = NULL,
     caption = "Fuente: elaboración propia con EPH-INDEC. Excluye hogares sin perceptores."
   ) +
   tema_proyecto +
   theme(
-    panel.grid.major.y = element_blank(),
-    axis.text.y = element_text(face = "bold")
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    legend.position = "top"
   )
+
 g7
 guardar_grafico(g7, "07_carga_por_perceptor", 10, 6)
-guardar_tabla(tabla_g7, "07_carga_por_perceptor")
+guardar_tabla(tabla_g7_brecha, "07_carga_por_perceptor")
 
 # ============================================================
 # 8. Pobreza segun condicion laboral del jefe
