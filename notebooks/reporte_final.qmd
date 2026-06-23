@@ -450,7 +450,7 @@ La evidencia se ordena siguiendo la lógica de la pregunta. Primero medimos la *
 ```{r}
 #| label: fig-g1
 #| code-summary: "Incorporar gráfico 1"
-#| fig-cap: "Incidencia trimestral ponderada de pobreza en hogares, por zona. Paneles separados por crisis; los períodos discontinuos no se unen. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| fig-cap: "Incidencia trimestral ponderada de pobreza en hogares, por zona. Paneles separados por crisis; la franja gris marca el año del shock y la línea punteada, el tramo sin observaciones. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
 #| out-width: "100%"
 
 include_graphics(here("output", "graficos", "01_serie_pobreza_zona.png"))
@@ -530,13 +530,13 @@ La presencia de niños y adolescentes es uno de los rasgos más asociados a la p
 ```{r}
 #| label: fig-g7
 #| code-summary: "Incorporar gráfico 7"
-#| fig-cap: "Mediana ponderada de adultos equivalentes sostenidos por cada perceptor de ingresos, después de cada crisis, por zona. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
+#| fig-cap: "Mediana ponderada de adultos equivalentes por perceptor de ingresos, después de cada crisis, por zona. Las etiquetas superiores muestran la diferencia relativa de Partidos del GBA respecto de CABA. Fuente: elaboración propia con EPH-INDEC, series de CBT-INDEC e IPC-CIFRA."
 #| out-width: "90%"
 
 include_graphics(here("output", "graficos", "07_carga_por_perceptor.png"))
 ```
 
-Este indicador mide la **carga económica por perceptor**: cuántos adultos equivalentes debe sostener, en la mediana, cada persona que aporta ingresos. En CABA el valor ronda **1 adulto equivalente por perceptor**, mientras que en los Partidos del GBA se ubica en torno a **1,27**. Dicho de otro modo, en el conurbano cada perceptor sostiene más "equivalentes" que en Ciudad. Esto importa porque un mismo ingreso individual rinde menos cuando debe repartirse entre más necesidades y es la primera mitad de la **segunda conjetura** (no es solo desempleo): y no se trata únicamente de cuántos trabajan, sino de cuánta carga recae sobre cada uno de los que aportan.
+Este indicador mide la **carga económica por perceptor**: cuántos adultos equivalentes debe sostener, en la mediana, cada persona que aporta ingresos. La diferencia es sistemática en las dos crisis: CABA se ubica cerca de **1 adulto equivalente por perceptor**, mientras que los Partidos del GBA rondan **1,27**. Dicho de otro modo, en el conurbano cada perceptor sostiene aproximadamente un **27% más de carga** que en Ciudad. Esto importa porque un mismo ingreso individual rinde menos cuando debe repartirse entre más necesidades; por eso, la **segunda conjetura** no apunta solamente a cuántos trabajan, sino también a cuánta carga recae sobre quienes efectivamente aportan ingresos al hogar.
 
 ```{r}
 #| label: fig-g8
@@ -547,7 +547,7 @@ Este indicador mide la **carga económica por perceptor**: cuántos adultos equi
 include_graphics(here("output", "graficos", "08_pobreza_jefe_ocupado.png"))
 ```
 
-La ocupación del jefe de hogar **reduce** la pobreza, pero no la elimina en su enteridad, y esto completa la **segunda conjetura** y prueba la **cuarta** (jefe ocupado). Tras la crisis de 2020, en los Partidos del GBA un hogar con **jefe ocupado** todavía registra una pobreza cercana al **`r pob_jefeocup_gba_2020`%**, apenas por debajo del nivel de los hogares con jefe no ocupado; en CABA la diferencia es del mismo orden, pero sobre niveles mucho menores. El mensaje sustantivo implicito sigue qué: el problema reciente **no se reduce a la falta de empleo**. Debe de existir una franja relevante de **trabajadores pobres** —hogares donde el jefe trabaja y aun así el ingreso familiar no cubre la canasta—, fenómeno especialmente extendido en el conurbano y coherente con la mayor carga por preceptor que vimos recién.
+La ocupación del jefe de hogar **reduce** la pobreza, pero no la elimina, y esto completa la **segunda conjetura** y prueba la **cuarta** (jefe ocupado). El gráfico muestra que la pobreza aumenta cuando el jefe no está ocupado, aunque el punto sustantivo es que, incluso con jefe ocupado, la pobreza sigue siendo elevada en el conurbano. Tras la crisis de 2020, en los Partidos del GBA un hogar con **jefe ocupado** todavía registra una pobreza cercana al **`r pob_jefeocup_gba_2020`%**; en CABA la diferencia es del mismo signo, pero sobre niveles menores. El mensaje de fondo, entonces, es que el problema reciente **no se reduce a la falta de empleo**: existe una franja relevante de **trabajadores pobres** —hogares donde el jefe trabaja y aun así el ingreso familiar no cubre la canasta—, fenómeno especialmente extendido en el conurbano y coherente con la mayor carga por perceptor que vimos recién.
 
 ## Síntesis de mecanismos territoriales
 
