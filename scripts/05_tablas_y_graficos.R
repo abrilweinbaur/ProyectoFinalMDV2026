@@ -86,11 +86,18 @@ base_medicion <- hogares_pobreza |>
     crisis = factor(crisis, levels = c("Crisis 2009", "Crisis 2020")),
     momento = factor(momento, levels = c("Antes", "Despues"), labels = c("Antes", "Después")),
     fecha = as.Date(sprintf("%d-%02d-01", anio, 1 + 3 * (trimestre - 1))),
-    presencia_menores = if_else(n_menores_18 > 0, "Con menores", "Sin menores"),
+    presencia_menores = factor(
+      if_else(n_menores_18 > 0, "Con menores", "Sin menores"),
+      levels = c("Sin menores", "Con menores")
+    ),
     estado_jefe = case_when(
       jefe_ocupado == 1 ~ "Jefe ocupado",
       jefe_ocupado == 0 ~ "Jefe no ocupado",
       TRUE ~ NA_character_
+    ),
+    estado_jefe = factor(
+      estado_jefe,
+      levels = c("Jefe ocupado", "Jefe no ocupado")
     )
   )
 
@@ -99,18 +106,58 @@ base_medicion <- hogares_pobreza |>
 # ============================================================
 
 tabla_g1 <- base_medicion |>
-  group_by(crisis, fecha, anio, trimestre, gba) |>
+  group_by(crisis, momento, fecha, anio, trimestre, gba) |>
   summarise(
     tasa_pobreza = media_ponderada(pobre, ponderador_ingreso),
     hogares_muestrales = n(),
     .groups = "drop"
   )
 
+franjas_crisis <- tribble(
+  ~crisis,       ~inicio,                ~fin,
+  "Crisis 2009", as.Date("2009-01-01"), as.Date("2009-12-31"),
+  "Crisis 2020", as.Date("2020-01-01"), as.Date("2020-12-31")
+) |>
+  mutate(crisis = factor(crisis, levels = levels(base_medicion$crisis)))
+
+# Une con línea punteada el último dato anterior y el primero posterior.
+# La serie sólida se corta porque esos trimestres no fueron observados.
+puentes_g1 <- tabla_g1 |>
+  group_by(crisis, gba, momento) |>
+  slice(if (first(momento) == "Antes") n() else 1) |>
+  ungroup() |>
+  select(crisis, gba, momento, fecha, tasa_pobreza) |>
+  pivot_wider(
+    names_from = momento,
+    values_from = c(fecha, tasa_pobreza),
+    names_sep = "_"
+  )
+
 g1 <- ggplot(
   tabla_g1,
-  aes(fecha, tasa_pobreza, color = gba, group = gba)
+  aes(fecha, tasa_pobreza, color = gba, group = interaction(gba, momento))
 ) +
+  geom_rect(
+    data = franjas_crisis,
+    aes(xmin = inicio, xmax = fin, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "grey65",
+    alpha = 0.22
+  ) +
   geom_line(linewidth = 1) +
+  geom_segment(
+    data = puentes_g1,
+    aes(
+      x = fecha_Antes,
+      xend = fecha_Después,
+      y = tasa_pobreza_Antes,
+      yend = tasa_pobreza_Después,
+      color = gba
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.8,
+    linetype = "dotted"
+  ) +
   geom_point(size = 2) +
   facet_wrap(~ crisis, scales = "free_x") +
   scale_color_manual(values = colores_zona) +
@@ -126,13 +173,13 @@ g1 <- ggplot(
   ) +
   labs(
     title = "La pobreza se mantiene más alta en Partidos del GBA",
-    subtitle = "Incidencia trimestral ponderada de pobreza en hogares",
+    subtitle = "La franja gris marca el año de crisis y la línea punteada, el período sin observaciones",
     x = NULL,
     y = "Tasa de pobreza",
     color = NULL,
     caption = paste(
       "Fuente: elaboración propia con EPH-INDEC.",
-      "Los paneles no unen períodos discontinuos."
+      "Las líneas sólidas solo unen trimestres observados."
     )
   ) +
   tema_proyecto +
@@ -148,16 +195,13 @@ g1 <- ggplot(
     panel.grid.major.y = element_line(
       color = "grey85",
       linewidth = 0.5
-    )
+    ),
+    panel.spacing.x = unit(1.4, "cm"),
+    panel.border = element_rect(color = "grey70", fill = NA, linewidth = 0.6)
   )
-guardar_grafico(
-  g1,
-  "01_serie_pobreza_zona",
-  ancho = 11,
-  alto = 7
-)
+
 g1
-guardar_grafico(g1, "01_serie_pobreza_zona", 11, 7)
+guardar_grafico(g1, "01_serie_pobreza_zona", 12, 7)
 guardar_tabla(tabla_g1, "01_serie_pobreza_zona")
 
 # ============================================================
@@ -171,25 +215,54 @@ tabla_g2 <- base_medicion |>
     .groups = "drop"
   )
 
+etiquetas_cambio_g2 <- tabla_g2 |>
+  select(crisis, momento, gba, tasa_pobreza) |>
+  pivot_wider(names_from = momento, values_from = tasa_pobreza) |>
+  mutate(
+    cambio_pp = 100 * (`Después` - Antes),
+    x = 1.5,
+    y = (Antes + `Después`) / 2
+  )
+
 g2 <- ggplot(tabla_g2, aes(momento, tasa_pobreza, color = gba, group = gba)) +
-  geom_line(linewidth = 1.2) +
+  geom_line(
+    linewidth = 1.2,
+    arrow = arrow(length = unit(0.16, "cm"), type = "closed")
+  ) +
   geom_point(size = 3) +
   geom_text(
     aes(label = label_percent(accuracy = 0.1)(tasa_pobreza)),
     vjust = -0.8, show.legend = FALSE, size = 3.5
   ) +
-  facet_wrap(~ crisis) +
+  geom_label(
+    data = etiquetas_cambio_g2,
+    aes(x = x, y = y, label = number(cambio_pp, accuracy = 0.1, suffix = " pp"), color = gba),
+    inherit.aes = FALSE,
+    fill = "white",
+    linewidth = 0,
+    size = 3.2,
+    show.legend = FALSE
+  ) +
+  facet_wrap(~ crisis, nrow = 1) +
   scale_color_manual(values = colores_zona) +
   scale_y_continuous(labels = label_percent(accuracy = 1), limits = c(0, NA), expand = expansion(mult = c(0.03, 0.15))) +
   labs(
     title = "Cambio de la pobreza alrededor de cada crisis",
-    subtitle = "Promedio ponderado de los años anteriores y posteriores disponibles",
+    subtitle = "Las flechas y etiquetas muestran el cambio antes/después en puntos porcentuales",
     x = NULL, y = "Tasa de pobreza", color = NULL,
-    caption = "Fuente: elaboración propia con EPH-INDEC."
+    caption = paste(
+      "Fuente: elaboración propia con EPH-INDEC.",
+      "Antes/después: 2007-2008/2010-2011 y 2018-2019/2021-2022; no se observan 2009 ni 2020."
+    )
   ) +
-  tema_proyecto
+  tema_proyecto +
+  theme(
+    panel.spacing.x = unit(1.5, "cm"),
+    panel.border = element_rect(color = "grey65", fill = NA, linewidth = 0.7),
+    strip.background = element_rect(fill = "grey92", color = "grey65")
+  )
 
-guardar_grafico(g2, "02_cambio_antes_despues", 10, 6)
+guardar_grafico(g2, "02_cambio_antes_despues", 11, 6.5)
 guardar_tabla(tabla_g2, "02_cambio_antes_despues")
 g2
 # ============================================================
@@ -200,28 +273,65 @@ tabla_g3 <- tabla_g2 |>
   mutate(gba = as.character(gba)) |>
   pivot_wider(names_from = gba, values_from = tasa_pobreza) |>
   mutate(
-    brecha_pp = 100 * (`Partidos del GBA` - CABA),
-    periodo = paste(crisis, momento, sep = " · ")
-  ) |>
-  arrange(brecha_pp) |>
-  mutate(periodo = factor(periodo, levels = periodo))
+    brecha_pp = 100 * (`Partidos del GBA` - CABA)
+  )
 
-g3 <- ggplot(tabla_g3, aes(brecha_pp, periodo)) +
-  geom_vline(xintercept = 0, color = "grey55", linetype = "dashed") +
-  geom_segment(aes(x = 0, xend = brecha_pp, yend = periodo), color = "grey70", linewidth = 1) +
-  geom_point(color = colores_zona[["Partidos del GBA"]], size = 3.5) +
-  geom_text(aes(label = number(brecha_pp, accuracy = 0.1, suffix = " pp")), hjust = -0.15, size = 3.5) +
-  scale_x_continuous(expand = expansion(mult = c(0.05, 0.2))) +
-  labs(
-    title = "Brecha de pobreza entre Partidos del GBA y CABA",
-    subtitle = "Valores positivos indican mayor pobreza en Partidos del GBA",
-    x = "Diferencia en puntos porcentuales", y = NULL,
-    caption = "Fuente: elaboración propia con EPH-INDEC."
+etiquetas_cambio_g3 <- tabla_g3 |>
+  select(crisis, momento, brecha_pp) |>
+  pivot_wider(names_from = momento, values_from = brecha_pp) |>
+  mutate(cambio_brecha_pp = `Después` - Antes)
+
+g3 <- ggplot(tabla_g3, aes(momento, brecha_pp, group = crisis)) +
+  geom_hline(yintercept = 0, color = "grey55", linetype = "dashed") +
+  geom_line(
+    color = colores_zona[["Partidos del GBA"]],
+    linewidth = 1.2,
+    arrow = arrow(length = unit(0.16, "cm"), type = "closed")
   ) +
-  tema_proyecto + theme(legend.position = "none")
+  geom_point(color = colores_zona[["Partidos del GBA"]], size = 3.5) +
+  geom_text(
+    aes(label = number(brecha_pp, accuracy = 0.1, suffix = " pp")),
+    vjust = -0.9,
+    size = 3.5
+  ) +
+  geom_label(
+    data = etiquetas_cambio_g3,
+    aes(
+      x = 1.5,
+      y = pmax(Antes, `Después`),
+      label = paste0(
+        "Cambio de la brecha: ",
+        sprintf("%+.1f pp", cambio_brecha_pp)
+      )
+    ),
+    inherit.aes = FALSE,
+    vjust = -1.3,
+    fill = "white",
+    linewidth = 0,
+    size = 3.2
+  ) +
+  facet_wrap(~ crisis, nrow = 1) +
+  scale_y_continuous(expand = expansion(mult = c(0.1, 0.3))) +
+  labs(
+    title = "¿La crisis amplió la brecha de pobreza entre GBA y CABA?",
+    subtitle = "Se compara directamente la diferencia territorial antes y después de cada crisis",
+    x = NULL,
+    y = "Brecha Partidos del GBA - CABA (puntos porcentuales)",
+    caption = paste(
+      "Fuente: elaboración propia con EPH-INDEC.",
+      "La baja de 2009 refiere a la brecha entre los bloques disponibles, no a una medición durante 2009."
+    )
+  ) +
+  tema_proyecto +
+  theme(
+    legend.position = "none",
+    panel.spacing.x = unit(1.5, "cm"),
+    panel.border = element_rect(color = "grey65", fill = NA, linewidth = 0.7),
+    strip.background = element_rect(fill = "grey92", color = "grey65")
+  )
 g3
-guardar_grafico(g3, "03_brecha_territorial", 10, 5.5)
-guardar_tabla(tabla_g3 |> mutate(periodo = as.character(periodo)), "03_brecha_territorial")
+guardar_grafico(g3, "03_brecha_territorial", 11, 6.5)
+guardar_tabla(tabla_g3, "03_brecha_territorial")
 
 # ============================================================
 # 4. Distribucion del ingreso respecto de la linea de pobreza
@@ -259,21 +369,55 @@ tabla_g5 <- base_medicion |>
   filter(momento == "Después", situacion_pobreza %in% c("Pobre", "No pobre")) |>
   mutate(situacion_pobreza = factor(as.character(situacion_pobreza), levels = c("No pobre", "Pobre")))
 
-g5 <- ggplot(tabla_g5, aes(gba, adulto_equiv_hogar, fill = gba, weight = ponderador_ingreso)) +
-  geom_violin(alpha = 0.35, trim = TRUE, color = NA) +
-  geom_boxplot(width = 0.16, outlier.shape = NA, alpha = 0.75) +
-  facet_grid(situacion_pobreza ~ crisis) +
+resumen_g5 <- tabla_g5 |>
+  group_by(crisis, situacion_pobreza, gba) |>
+  summarise(
+    mediana_adulto_equiv = mediana_ponderada(adulto_equiv_hogar, ponderador_ingreso),
+    .groups = "drop"
+  )
+
+g5 <- ggplot(tabla_g5, aes(gba, adulto_equiv_hogar, fill = gba)) +
+  geom_violin(
+    aes(weight = ponderador_ingreso),
+    alpha = 0.42,
+    trim = TRUE,
+    quantiles = NULL,
+    color = NA
+  ) +
+  geom_point(
+    data = resumen_g5,
+    aes(x = gba, y = mediana_adulto_equiv),
+    inherit.aes = FALSE,
+    shape = 23,
+    size = 3.2,
+    fill = "white",
+    color = "black"
+  ) +
+  geom_text(
+    data = resumen_g5,
+    aes(x = gba, y = mediana_adulto_equiv, label = number(mediana_adulto_equiv, accuracy = 0.01)),
+    inherit.aes = FALSE,
+    vjust = -1.2,
+    size = 3.1
+  ) +
+  facet_grid(rows = vars(crisis), cols = vars(situacion_pobreza)) +
   scale_fill_manual(values = colores_zona) +
   coord_cartesian(ylim = c(0, quantile(tabla_g5$adulto_equiv_hogar, 0.99, na.rm = TRUE))) +
   labs(
-    title = "Los adultos equivalentes elevan la necesidad de ingreso del hogar",
-    subtitle = "Distribución posterior a cada crisis, por zona y situación de pobreza",
+    title = "Los hogares pobres sostienen más adultos equivalentes",
+    subtitle = "Cuatro comparaciones: crisis en las filas y pobreza en las columnas; el rombo indica la mediana ponderada",
     x = NULL, y = "Adultos equivalentes del hogar", fill = NULL,
     caption = "Fuente: elaboración propia con EPH-INDEC. Escala recortada en el percentil 99."
   ) +
-  tema_proyecto + theme(axis.text.x = element_text(angle = 15, hjust = 1))
+  tema_proyecto +
+  theme(
+    axis.text.x = element_text(angle = 12, hjust = 1),
+    panel.spacing = unit(0.8, "cm"),
+    panel.border = element_rect(color = "grey72", fill = NA, linewidth = 0.6),
+    strip.background = element_rect(fill = "grey92", color = "grey72")
+  )
 g5
-guardar_grafico(g5, "05_adultos_equivalentes", 11, 7)
+guardar_grafico(g5, "05_adultos_equivalentes", 12, 8)
 
 # ============================================================
 # 6. Presencia de menores y tasa de pobreza
@@ -286,21 +430,49 @@ tabla_g6 <- base_medicion |>
     .groups = "drop"
   )
 
-g6 <- ggplot(tabla_g6, aes(presencia_menores, tasa_pobreza, color = gba, group = gba)) +
-  geom_line(linewidth = 0.9) +
-  geom_point(size = 3) +
-  facet_grid(momento ~ crisis) +
-  scale_color_manual(values = colores_zona) +
+colores_menores <- c("Sin menores" = "#5B8E7D", "Con menores" = "#C44536")
+tipos_linea_zona <- c("CABA" = "solid", "Partidos del GBA" = "dashed")
+formas_zona <- c("CABA" = 16, "Partidos del GBA" = 17)
+
+g6 <- ggplot(
+  tabla_g6,
+  aes(
+    momento,
+    tasa_pobreza,
+    color = presencia_menores,
+    linetype = gba,
+    shape = gba,
+    group = interaction(gba, presencia_menores)
+  )
+) +
+  geom_line(linewidth = 1.05) +
+  geom_point(size = 3.2) +
+  facet_wrap(~ crisis, nrow = 1) +
+  scale_color_manual(values = colores_menores) +
+  scale_linetype_manual(values = tipos_linea_zona) +
+  scale_shape_manual(values = formas_zona) +
   scale_y_continuous(labels = label_percent(accuracy = 1), limits = c(0, NA)) +
   labs(
-    title = "Pobreza según presencia de menores en el hogar",
-    subtitle = "Comparación territorial antes y después de cada crisis",
-    x = NULL, y = "Tasa de pobreza", color = NULL,
-    caption = "Fuente: elaboración propia con EPH-INDEC."
+    title = "¿Cómo cambió la pobreza en hogares con y sin menores?",
+    subtitle = "Color: presencia de menores. Tipo de línea y forma: territorio.",
+    x = NULL,
+    y = "Tasa de pobreza",
+    color = "Composición del hogar",
+    linetype = "Territorio",
+    shape = "Territorio",
+    caption = paste(
+      "Fuente: elaboración propia con EPH-INDEC.",
+      "Antes/después usa los bloques 2007-2008/2010-2011 y 2018-2019/2021-2022."
+    )
   ) +
-  tema_proyecto
+  tema_proyecto +
+  theme(
+    panel.spacing.x = unit(1.5, "cm"),
+    panel.border = element_rect(color = "grey65", fill = NA, linewidth = 0.7),
+    strip.background = element_rect(fill = "grey92", color = "grey65")
+  )
 g6
-guardar_grafico(g6, "06_menores_y_pobreza", 11, 7)
+guardar_grafico(g6, "06_menores_y_pobreza", 12, 7)
 guardar_tabla(tabla_g6, "06_menores_y_pobreza")
 
 # ============================================================
@@ -315,23 +487,45 @@ tabla_g7 <- base_medicion |>
     .groups = "drop"
   )
 
+segmentos_g7 <- tabla_g7 |>
+  mutate(gba = as.character(gba)) |>
+  pivot_wider(names_from = gba, values_from = carga_mediana)
+
 g7 <- ggplot(tabla_g7, aes(carga_mediana, crisis, color = gba)) +
-  geom_point(size = 4, position = position_dodge(width = 0.45)) +
+  geom_segment(
+    data = segmentos_g7,
+    aes(
+      x = CABA,
+      xend = `Partidos del GBA`,
+      y = crisis,
+      yend = crisis
+    ),
+    inherit.aes = FALSE,
+    color = "grey65",
+    linewidth = 1.2
+  ) +
+  geom_point(size = 4.5) +
   geom_text(
     aes(label = number(carga_mediana, accuracy = 0.01)),
-    position = position_dodge(width = 0.45), vjust = -1, show.legend = FALSE
+    vjust = -1.15,
+    show.legend = FALSE,
+    size = 3.4
   ) +
   scale_color_manual(values = colores_zona) +
-  scale_x_continuous(limits = c(0, NA), expand = expansion(mult = c(0.03, 0.12))) +
+  scale_x_continuous(expand = expansion(mult = c(0.18, 0.18))) +
   labs(
-    title = "Carga económica por perceptor después de las crisis",
-    subtitle = "Mediana ponderada de adultos equivalentes sostenidos por cada perceptor",
+    title = "Carga económica por perceptor después de cada crisis",
+    subtitle = "La línea une las medianas de CABA y Partidos del GBA; mayor valor implica mayor carga",
     x = "Adultos equivalentes por perceptor", y = NULL, color = NULL,
     caption = "Fuente: elaboración propia con EPH-INDEC. Excluye hogares sin perceptores."
   ) +
-  tema_proyecto
+  tema_proyecto +
+  theme(
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(face = "bold")
+  )
 g7
-guardar_grafico(g7, "07_carga_por_perceptor", 10, 5.5)
+guardar_grafico(g7, "07_carga_por_perceptor", 10, 6)
 guardar_tabla(tabla_g7, "07_carga_por_perceptor")
 
 # ============================================================
@@ -346,26 +540,53 @@ tabla_g8 <- base_medicion |>
     .groups = "drop"
   )
 
+etiquetas_cambio_g8 <- tabla_g8 |>
+  select(crisis, gba, estado_jefe, tasa_pobreza) |>
+  pivot_wider(names_from = estado_jefe, values_from = tasa_pobreza) |>
+  mutate(
+    aumento_pp = 100 * (`Jefe no ocupado` - `Jefe ocupado`),
+    x = 1.5,
+    y = (`Jefe ocupado` + `Jefe no ocupado`) / 2
+  )
+
 g8 <- ggplot(tabla_g8, aes(estado_jefe, tasa_pobreza, color = gba, group = gba)) +
-  geom_line(linewidth = 0.9) +
+  geom_line(
+    linewidth = 1.05,
+    arrow = arrow(length = unit(0.15, "cm"), type = "closed")
+  ) +
   geom_point(size = 3) +
-  facet_wrap(~ crisis) +
+  geom_label(
+    data = etiquetas_cambio_g8,
+    aes(x = x, y = y, label = paste0("+", number(aumento_pp, accuracy = 0.1), " pp"), color = gba),
+    inherit.aes = FALSE,
+    fill = "white",
+    linewidth = 0,
+    size = 3.1,
+    show.legend = FALSE
+  ) +
+  facet_wrap(~ crisis, nrow = 1) +
   scale_color_manual(values = colores_zona) +
-  scale_y_continuous(labels = label_percent(accuracy = 1), limits = c(0, NA)) +
+  scale_y_continuous(
+    labels = label_percent(accuracy = 1),
+    limits = c(0, NA),
+    expand = expansion(mult = c(0.03, 0.15))
+  ) +
   labs(
-    title = "Tener jefe ocupado reduce la pobreza, pero no la elimina",
-    subtitle = "Tasa ponderada posterior a cada crisis",
+    title = "La pobreza aumenta cuando el jefe no está ocupado",
+    subtitle = "Ocupado se ubica a la izquierda y no ocupado a la derecha; las etiquetas muestran el aumento",
     x = NULL, y = "Tasa de pobreza", color = NULL,
     caption = "Fuente: elaboración propia con EPH-INDEC."
   ) +
-  tema_proyecto
+  tema_proyecto +
+  theme(
+    panel.spacing.x = unit(1.5, "cm"),
+    panel.border = element_rect(color = "grey65", fill = NA, linewidth = 0.7),
+    strip.background = element_rect(fill = "grey92", color = "grey65")
+  )
 g8
-guardar_grafico(g8, "08_pobreza_jefe_ocupado", 10, 6)
+guardar_grafico(g8, "08_pobreza_jefe_ocupado", 11, 6.5)
 guardar_tabla(tabla_g8, "08_pobreza_jefe_ocupado")
 
-# ============================================================
-# 9. Mapa de calor de mecanismos territoriales
-# ============================================================
 # ============================================================
 # 9. Mapa de calor de mecanismos territoriales
 # ============================================================
@@ -453,19 +674,33 @@ tabla_g9 <- tabla_g9_larga |>
       }
     }
   ) |>
-  ungroup() |>
+  ungroup()
+
+# Ordena los mecanismos por el mayor cambio absoluto entre antes y después
+# observado en cualquiera de las dos crisis.
+orden_g9 <- tabla_g9 |>
+  select(crisis, momento, mecanismo, brecha_estandarizada) |>
+  pivot_wider(names_from = momento, values_from = brecha_estandarizada) |>
+  mutate(cambio_temporal = `Después` - Antes) |>
+  group_by(mecanismo) |>
+  summarise(
+    magnitud_cambio = max(abs(cambio_temporal), na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(magnitud_cambio))
+
+tabla_g9 <- tabla_g9 |>
   mutate(
-    columna = paste(
-      crisis,
-      momento,
-      sep = "\n"
+    mecanismo = factor(
+      mecanismo,
+      levels = rev(orden_g9$mecanismo)
     )
   )
 
 g9 <- ggplot(
   tabla_g9,
   aes(
-    x = columna,
+    x = momento,
     y = mecanismo,
     fill = brecha_estandarizada
   )
@@ -483,6 +718,11 @@ g9 <- ggplot(
     ),
     size = 3.2
   ) +
+  facet_grid(
+    cols = vars(crisis),
+    scales = "free_x",
+    space = "free_x"
+  ) +
   scale_fill_gradient2(
     low = "#2C7FB8",
     mid = "white",
@@ -492,9 +732,9 @@ g9 <- ggplot(
   ) +
   labs(
     title = "Síntesis de mecanismos de vulnerabilidad territorial",
-    subtitle = paste(
-      "Valores positivos indican mayor vulnerabilidad relativa",
-      "en Partidos del GBA"
+    subtitle = paste0(
+      "Filas ordenadas por el mayor cambio antes/después.\n",
+      "Valores positivos indican mayor vulnerabilidad relativa en Partidos del GBA."
     ),
     x = NULL,
     y = NULL,
@@ -508,7 +748,10 @@ g9 <- ggplot(
   theme(
     axis.text.x = element_text(face = "bold"),
     axis.text.y = element_text(size = 10),
-    legend.position = "right"
+    legend.position = "right",
+    panel.spacing.x = unit(1.4, "cm"),
+    panel.border = element_rect(color = "grey65", fill = NA, linewidth = 0.7),
+    strip.background = element_rect(fill = "grey90", color = "grey65")
   )
 g9
 guardar_grafico(
@@ -524,4 +767,3 @@ guardar_tabla(
 )
 
 message("Graficos finalizados. Revisar output/graficos y output/tablas/graficos.")
-

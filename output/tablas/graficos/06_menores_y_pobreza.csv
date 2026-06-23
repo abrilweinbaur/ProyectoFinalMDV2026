@@ -1,17 +1,17 @@
 crisis,momento,gba,presencia_menores,tasa_pobreza
-Crisis 2009,Antes,CABA,Con menores,0.13579628451208084
 Crisis 2009,Antes,CABA,Sin menores,0.03252787041552058
-Crisis 2009,Antes,Partidos del GBA,Con menores,0.2923957495395405
+Crisis 2009,Antes,CABA,Con menores,0.13579628451208084
 Crisis 2009,Antes,Partidos del GBA,Sin menores,0.08932817727088589
-Crisis 2009,Después,CABA,Con menores,0.10253252538822882
+Crisis 2009,Antes,Partidos del GBA,Con menores,0.2923957495395405
 Crisis 2009,Después,CABA,Sin menores,0.025338642921285515
-Crisis 2009,Después,Partidos del GBA,Con menores,0.21555405834806676
+Crisis 2009,Después,CABA,Con menores,0.10253252538822882
 Crisis 2009,Después,Partidos del GBA,Sin menores,0.0647344381163712
-Crisis 2020,Antes,CABA,Con menores,0.17395746156953792
+Crisis 2009,Después,Partidos del GBA,Con menores,0.21555405834806676
 Crisis 2020,Antes,CABA,Sin menores,0.042326919800232586
-Crisis 2020,Antes,Partidos del GBA,Con menores,0.4374429661654083
+Crisis 2020,Antes,CABA,Con menores,0.17395746156953792
 Crisis 2020,Antes,Partidos del GBA,Sin menores,0.15138025971896324
-Crisis 2020,Después,CABA,Con menores,0.20235102802254062
+Crisis 2020,Antes,Partidos del GBA,Con menores,0.4374429661654083
 Crisis 2020,Después,CABA,Sin menores,0.05883499454068308
-Crisis 2020,Después,Partidos del GBA,Con menores,0.4888503232381234
+Crisis 2020,Después,CABA,Con menores,0.20235102802254062
 Crisis 2020,Después,Partidos del GBA,Sin menores,0.198805865903417
+Crisis 2020,Después,Partidos del GBA,Con menores,0.4888503232381234
